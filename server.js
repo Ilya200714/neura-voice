@@ -13,29 +13,33 @@ const io = socketIo(server, {
 
 const db = new sqlite3.Database(':memory:');
 
-// База данных
+// Простая база данных
 db.serialize(() => {
-  db.run(`CREATE TABLE users (
-    username TEXT PRIMARY KEY,
-    password_hash TEXT NOT NULL,
-    name TEXT NOT NULL
-  )`);
+  db.run(`
+    CREATE TABLE users (
+      username TEXT PRIMARY KEY,
+      password_hash TEXT NOT NULL,
+      name TEXT NOT NULL
+    )
+  `);
   
   // Тестовые пользователи
-  const hash1 = crypto.createHash('sha256').update('123').digest('hex');
-  const hash2 = crypto.createHash('sha256').update('password').digest('hex');
+  const testHash = crypto.createHash('sha256').update('123').digest('hex');
+  const test1Hash = crypto.createHash('sha256').update('password').digest('hex');
   
-  db.run('INSERT OR IGNORE INTO users VALUES (?, ?, ?)', ['test', hash1, 'Тест']);
-  db.run('INSERT OR IGNORE INTO users VALUES (?, ?, ?)', ['test1', hash2, 'Тест 1']);
+  db.run('INSERT OR IGNORE INTO users VALUES (?, ?, ?)', ['test', testHash, 'Тест Пользователь']);
+  db.run('INSERT OR IGNORE INTO users VALUES (?, ?, ?)', ['test1', test1Hash, 'Тест Пользователь 1']);
 });
 
 const activeUsers = new Map();
 
 io.on('connection', (socket) => {
-  console.log('✅ Подключен:', socket.id);
+  console.log('✅ Новое подключение:', socket.id);
   
   // Вход
   socket.on('login', ({ username, password }) => {
+    console.log('🔑 Попытка входа:', username);
+    
     const hash = crypto.createHash('sha256').update(password).digest('hex');
     
     db.get('SELECT name FROM users WHERE username = ? AND password_hash = ?', 
@@ -53,8 +57,8 @@ io.on('connection', (socket) => {
           avatar: ''
         });
         
-        console.log('✅ Вход:', username);
-    });
+        console.log('✅ Успешный вход:', username);
+      });
   });
   
   // Регистрация
@@ -74,20 +78,25 @@ io.on('connection', (socket) => {
         }
         
         socket.emit('auth-success', { name, avatar: '' });
-        console.log('✅ Регистрация:', username);
       });
     });
   });
   
   // Присоединение к комнате
   socket.on('join-room', ({ room, peerId, name }) => {
-    console.log(`👤 ${name} в комнате ${room}`);
+    console.log(`👤 ${name} присоединяется к комнате ${room}`);
     
     socket.join(room);
     socket.currentRoom = room;
     socket.peerId = peerId;
     
-    // Отправляем новичку список участников
+    // Отправляем текущим участникам информацию о новичке
+    socket.to(room).emit('user-joined', {
+      peerId: peerId,
+      name: name || socket.username || 'Участник'
+    });
+    
+    // Отправляем новичку информацию о текущих участниках
     const roomSockets = io.sockets.adapter.rooms.get(room);
     if (roomSockets) {
       roomSockets.forEach(socketId => {
@@ -102,41 +111,52 @@ io.on('connection', (socket) => {
         }
       });
     }
-    
-    // Уведомляем других
-    socket.to(room).emit('user-joined', {
-      peerId,
-      name: name || socket.username || 'Участник'
-    });
   });
   
   // WebRTC сигналы
-  socket.on('webrtc-offer', ({ to, from, offer }) => {
-    const recipient = activeUsers.get(to);
-    if (recipient) io.to(recipient).emit('webrtc-offer', { from, offer });
+  socket.on('webrtc-offer', (data) => {
+    const recipient = activeUsers.get(data.to);
+    if (recipient) {
+      io.to(recipient).emit('webrtc-offer', {
+        from: data.from,
+        offer: data.offer
+      });
+    }
   });
   
-  socket.on('webrtc-answer', ({ to, from, answer }) => {
-    const recipient = activeUsers.get(to);
-    if (recipient) io.to(recipient).emit('webrtc-answer', { from, answer });
+  socket.on('webrtc-answer', (data) => {
+    const recipient = activeUsers.get(data.to);
+    if (recipient) {
+      io.to(recipient).emit('webrtc-answer', {
+        from: data.from,
+        answer: data.answer
+      });
+    }
   });
   
-  socket.on('webrtc-ice-candidate', ({ to, from, candidate }) => {
-    const recipient = activeUsers.get(to);
-    if (recipient) io.to(recipient).emit('webrtc-ice-candidate', { from, candidate });
+  socket.on('webrtc-ice-candidate', (data) => {
+    const recipient = activeUsers.get(data.to);
+    if (recipient) {
+      io.to(recipient).emit('webrtc-ice-candidate', {
+        from: data.from,
+        candidate: data.candidate
+      });
+    }
   });
   
-  // Сообщения
+  // Сообщения в чате
   socket.on('chat-message', ({ room, name, text }) => {
     io.to(room).emit('chat-message', {
-      name,
-      text,
+      name: name,
+      text: text,
       timestamp: new Date().toISOString()
     });
   });
   
   // Отключение
   socket.on('disconnect', () => {
+    console.log('❌ Отключение:', socket.id, socket.username);
+    
     if (socket.username) {
       activeUsers.delete(socket.username);
     }
@@ -149,10 +169,25 @@ io.on('connection', (socket) => {
   });
 });
 
+// Статические файлы
 app.use(express.static('.'));
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
+// Проверка сервера
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok',
+    users: activeUsers.size,
+    time: new Date().toISOString()
+  });
+});
+
+// Запуск сервера
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  console.log(`🔗 http://localhost:${PORT}`);
+  console.log(`📊 /health - проверка сервера`);
+  console.log(`\n📋 Тестовые пользователи:`);
+  console.log(`   👤 Логин: test / Пароль: 123`);
+  console.log(`   👤 Логин: test1 / Пароль: password`);
 });
