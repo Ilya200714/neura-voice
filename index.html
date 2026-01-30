@@ -115,6 +115,44 @@
     .animate-slideInRight {
       animation: slideInRight 0.3s ease;
     }
+      /* Стили для медиа сообщений */
+.media-container {
+  max-width: 300px;
+  margin-top: 4px;
+}
+
+.media-content {
+  max-width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.media-preview {
+  max-width: 100%;
+  border-radius: 8px;
+  margin-top: 4px;
+  background: transparent;
+  border: none;
+}
+
+/* Убираем обводку у медиа внутри сообщений */
+.message-self .media-container,
+.message-other .media-container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.message-self img,
+.message-other img,
+.message-self video,
+.message-other video {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
   </style>
 </head>
 <body>
