@@ -1,8 +1,4 @@
-const SOCKET_URL = window.location.origin;
-const DEBUG = true;
-function debugLog(...args) {
-  if (DEBUG) console.log('[DEBUG]', ...args);
-}
+const SOCKET_URL = 'https://neura-voice-production.up.railway.app'; // ИЛИ ваш Railway URL
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
@@ -10,78 +6,114 @@ const socket = io(SOCKET_URL, {
   reconnectionAttempts: 10
 });
 
-// WebRTC конфигурация с STUN серверами
+// WebRTC конфигурация
 const PC_CONFIG = {
   iceServers: [
-    // Публичные STUN серверы
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:stun.ekiga.net' },
-    { urls: 'stun:stun.ideasip.com' },
-    { urls: 'stun:stun.schlund.de' },
-    { urls: 'stun:stun.stunprotocol.org:3478' },
-    // Если нужны TURN серверы (для сложных сетей)
-    /*
-    {
-      urls: 'turn:your-turn-server.com:3478',
-      username: 'username',
-      credential: 'password'
-    }
-    */
-  ],
-  iceCandidatePoolSize: 10
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
 };
 
 let myStream;
-let myPeerId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+let myPeerId = 'user_' + Date.now();
 let currentRoom = 'default';
 let userName = 'Ты';
-let userAvatar = '';
-let currentGroup = null;
-let groups = [];
-let friends = [];
-let friendRequests = [];
 let micOn = true;
 let connections = {};
 
 // Инициализация при загрузке
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('🚀 Neura Voice загружен');
-  console.log('🌐 URL сервера:', SOCKET_URL);
-  console.log('👤 Мой ID:', myPeerId);
-  
   initEventListeners();
   
   if (typeof lucide !== 'undefined') {
     lucide.createIcons();
   }
   
-  // Автоматически войти для тестирования (удалите в продакшене)
-  // autoLoginForTesting();
+  console.log('🚀 Приложение загружено');
 });
 
-function autoLoginForTesting() {
-  // Для быстрого тестирования - автоматический вход
-  setTimeout(() => {
-    const loginBtn = document.getElementById('login-btn');
-    if (loginBtn) {
-      document.getElementById('login-username').value = 'test';
-      document.getElementById('login-password').value = '123';
-      loginBtn.click();
-    }
-  }, 500);
+// ДОБАВЬТЕ ЭТУ ФУНКЦИЮ В APP.JS:
+function initEventListeners() {
+  // Вход
+  const loginBtn = document.getElementById('login-btn');
+  if (loginBtn) {
+    loginBtn.onclick = () => {
+      const username = document.getElementById('login-username')?.value.trim();
+      const password = document.getElementById('login-password')?.value.trim();
+      
+      if (!username || !password) {
+        document.getElementById('auth-error').textContent = 'Заполните поля';
+        return;
+      }
+      
+      console.log('Вход:', username);
+      socket.emit('login', { username, password });
+    };
+  }
+
+  // Регистрация
+  const registerBtn = document.getElementById('register-btn');
+  if (registerBtn) {
+    registerBtn.onclick = () => {
+      const name = document.getElementById('register-name')?.value.trim();
+      const username = document.getElementById('register-username')?.value.trim();
+      const password = document.getElementById('register-password')?.value.trim();
+      
+      if (!name || !username || !password) {
+        document.getElementById('register-error').textContent = 'Заполните все поля';
+        return;
+      }
+      
+      console.log('Регистрация:', username);
+      socket.emit('register', { name, username, password });
+    };
+  }
+
+  // Переключение экранов
+  const toRegisterBtn = document.getElementById('to-register-btn');
+  if (toRegisterBtn) {
+    toRegisterBtn.onclick = () => {
+      document.getElementById('login-screen').classList.add('hidden');
+      document.getElementById('register-screen').classList.remove('hidden');
+    };
+  }
+
+  const backToLoginBtn = document.getElementById('back-to-login-btn');
+  if (backToLoginBtn) {
+    backToLoginBtn.onclick = () => {
+      document.getElementById('register-screen').classList.add('hidden');
+      document.getElementById('login-screen').classList.remove('hidden');
+    };
+  }
+
+  // Микрофон
+  const micBtn = document.getElementById('mic-btn');
+  if (micBtn) {
+    micBtn.onclick = toggleMicrophone;
+  }
+
+  // Отправка сообщения
+  const sendBtn = document.getElementById('send-btn');
+  if (sendBtn) {
+    sendBtn.onclick = sendMessage;
+  }
+  
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) {
+    chatInput.onkeypress = (e) => {
+      if (e.key === 'Enter') sendMessage();
+    };
+  }
 }
 
-// Socket.io события
+// Socket обработчики
 socket.on('connect', () => {
-  console.log('✅ Подключен к серверу Socket.io');
+  console.log('✅ Подключен к серверу');
 });
 
 socket.on('connect_error', (error) => {
-  console.error('❌ Ошибка подключения Socket.io:', error);
+  console.error('❌ Ошибка подключения:', error);
+  document.getElementById('auth-error').textContent = 'Не удалось подключиться к серверу';
 });
 
 socket.on('auth-error', (error) => {
@@ -91,141 +123,55 @@ socket.on('auth-error', (error) => {
   } else {
     document.getElementById('auth-error').textContent = error;
   }
-  console.error('❌ Ошибка аутентификации:', error);
+  console.error('Ошибка аутентификации:', error);
 });
 
 socket.on('auth-success', async (userData) => {
-  debugLog('✅ Вход успешен:', userData);
-  
-  if (!userData || !userData.name) {
-    console.error('❌ Некорректные данные пользователя:', userData);
-    return;
-  }
+  console.log('✅ Вход успешен:', userData);
   
   userName = userData.name;
-  userAvatar = userData.avatar || '';
   
-  // Проверяем элементы DOM
-  const loginScreen = document.getElementById('login-screen');
-  const mainScreen = document.getElementById('main-screen');
+  // Переключаем экраны
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('register-screen').classList.add('hidden');
+  document.getElementById('main-screen').classList.remove('hidden');
   
-  if (!loginScreen || !mainScreen) {
-    console.error('❌ Не найдены элементы DOM');
-    return;
-  }
-  
-  loginScreen.classList.add('hidden');
-  mainScreen.classList.remove('hidden');
-  
-  updateUserProfile();
-  
-  try {
-    await initVoiceChat();
-  } catch (error) {
-    console.error('❌ Ошибка инициализации голосового чата:', error);
-  }
-  
-  loadGroups();
-  loadFriends();
-  loadFriendRequests();
-  
-  lucide.createIcons();
-  debugLog('✅ Интерфейс инициализирован');
+  // Инициализируем голосовой чат
+  await initVoiceChat();
 });
 
 // WebRTC события
 socket.on('user-joined', async ({ peerId, name }) => {
-  console.log('👤 Пользователь присоединился:', peerId, name);
-  
-  if (peerId === myPeerId) {
-    console.log('⚠️ Это я сам, игнорирую');
-    return;
+  console.log('👤 Присоединился:', name);
+  if (peerId !== myPeerId && myStream) {
+    await createPeerConnection(peerId, name, true);
   }
-  
-  if (!myStream) {
-    console.warn('⚠️ У меня нет аудио потока');
-    return;
-  }
-  
-  if (connections[peerId]) {
-    console.log('⚠️ Соединение уже существует');
-    return;
-  }
-  
-  await createPeerConnection(peerId, name, true);
 });
 
 socket.on('webrtc-offer', async ({ from, offer }) => {
-  console.log('📥 Получен WebRTC offer от', from);
-  
-  if (!myStream) {
-    console.warn('⚠️ Нет аудио потока для ответа');
-    return;
-  }
-  
-  if (connections[from]) {
-    console.warn('⚠️ Соединение уже существует');
-    return;
-  }
-  
+  console.log('📥 Получен offer от', from);
   await handleOffer(from, offer);
 });
 
 socket.on('webrtc-answer', async ({ from, answer }) => {
-  console.log('📥 Получен WebRTC answer от', from);
-  
   const pc = connections[from];
-  if (!pc) {
-    console.warn('⚠️ Нет соединения для ответа');
-    return;
-  }
-  
-  try {
+  if (pc) {
     await pc.setRemoteDescription(new RTCSessionDescription(answer));
-    console.log('✅ Установлено удаленное описание');
-  } catch (error) {
-    console.error('❌ Ошибка установки удаленного описания:', error);
   }
 });
 
 socket.on('webrtc-ice-candidate', ({ from, candidate }) => {
-  console.log('❄️ Получен ICE кандидат от', from);
-  
   const pc = connections[from];
   if (pc && candidate) {
-    pc.addIceCandidate(new RTCIceCandidate(candidate))
-      .then(() => console.log('✅ ICE кандидат добавлен'))
-      .catch(err => console.error('❌ Ошибка добавления ICE кандидата:', err));
+    pc.addIceCandidate(new RTCIceCandidate(candidate));
   }
 });
 
-socket.on('user-left', ({ peerId }) => {
-  console.log('👤 Пользователь вышел:', peerId);
-  removeParticipant(peerId);
-  
-  if (connections[peerId]) {
-    connections[peerId].close();
-    delete connections[peerId];
-  }
-});
-
-// Основные функции
+// Основные функции WebRTC
 async function initVoiceChat() {
   try {
-    // Останавливаем старый поток
-    if (myStream) {
-      myStream.getTracks().forEach(track => track.stop());
-    }
-    
-    // Запрашиваем доступ к микрофону
     myStream = await navigator.mediaDevices.getUserMedia({ 
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: 48000,
-        channelCount: 1
-      },
+      audio: true,
       video: false 
     });
     
@@ -238,145 +184,88 @@ async function initVoiceChat() {
       name: userName 
     });
     
-    console.log('📨 Отправлен join-room запрос');
-    
     // Добавляем себя
     addParticipant(myPeerId, userName, myStream, true);
     
   } catch (error) {
-    console.error('❌ Ошибка инициализации голосового чата:', error);
-    
-    // Все равно присоединяемся к комнате
+    console.error('❌ Ошибка микрофона:', error);
+    // Добавляем себя без потока
     socket.emit('join-room', { 
       room: currentRoom, 
       peerId: myPeerId,
       name: userName 
     });
-    
     addParticipant(myPeerId, userName, null, true);
   }
 }
 
 async function createPeerConnection(peerId, name, isInitiator = false) {
-  console.log(`🔗 Создаем PeerConnection для ${peerId}, инициатор: ${isInitiator}`);
+  const pc = new RTCPeerConnection(PC_CONFIG);
+  connections[peerId] = pc;
   
-  try {
-    const pc = new RTCPeerConnection(PC_CONFIG);
-    connections[peerId] = pc;
-    
-    // Добавляем наш аудио поток
-    if (myStream) {
-      myStream.getTracks().forEach(track => {
-        pc.addTrack(track, myStream);
-        console.log('🎤 Добавлен трек:', track.kind);
+  // Добавляем наш поток
+  myStream.getTracks().forEach(track => {
+    pc.addTrack(track, myStream);
+  });
+  
+  // Получаем удаленный поток
+  pc.ontrack = (event) => {
+    console.log('🎵 Получен поток от', name);
+    addParticipant(peerId, name, event.streams[0], false);
+  };
+  
+  // ICE кандидаты
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit('webrtc-ice-candidate', {
+        to: peerId,
+        from: myPeerId,
+        candidate: event.candidate
       });
     }
+  };
+  
+  // Если мы инициатор
+  if (isInitiator) {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
     
-    // Обработка удаленного потока
-    pc.ontrack = (event) => {
-      console.log('🎵 Получен удаленный поток от', peerId);
-      if (event.streams && event.streams[0]) {
-        addParticipant(peerId, name, event.streams[0], false);
-      }
-    };
-    
-    // ICE кандидаты
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        console.log('❄️ Отправляю ICE кандидат');
-        socket.emit('webrtc-ice-candidate', {
-          to: peerId,
-          from: myPeerId,
-          candidate: event.candidate
-        });
-      }
-    };
-    
-    pc.oniceconnectionstatechange = () => {
-      console.log(`🔄 ICE состояние для ${peerId}:`, pc.iceConnectionState);
-      
-      if (pc.iceConnectionState === 'connected' || 
-          pc.iceConnectionState === 'completed') {
-        console.log('✅ WebRTC соединение установлено!');
-      } else if (pc.iceConnectionState === 'failed' ||
-                 pc.iceConnectionState === 'disconnected' ||
-                 pc.iceConnectionState === 'closed') {
-        console.warn('⚠️ WebRTC соединение потеряно:', pc.iceConnectionState);
-        removeParticipant(peerId);
-      }
-    };
-    
-    // Если мы инициатор, создаем offer
-    if (isInitiator) {
-      try {
-        const offer = await pc.createOffer({
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false
-        });
-        
-        await pc.setLocalDescription(offer);
-        
-        socket.emit('webrtc-offer', {
-          to: peerId,
-          from: myPeerId,
-          offer: offer
-        });
-        
-        console.log('📤 Отправлен WebRTC offer');
-      } catch (error) {
-        console.error('❌ Ошибка создания offer:', error);
-      }
-    }
-    
-    return pc;
-    
-  } catch (error) {
-    console.error('❌ Ошибка создания PeerConnection:', error);
-    throw error;
+    socket.emit('webrtc-offer', {
+      to: peerId,
+      from: myPeerId,
+      offer: offer
+    });
   }
+  
+  return pc;
 }
 
 async function handleOffer(from, offer) {
-  console.log('🤝 Обрабатываю offer от', from);
+  if (!myStream) return;
   
-  try {
-    const pc = await createPeerConnection(from, 'Участник', false);
-    
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    
-    socket.emit('webrtc-answer', {
-      to: from,
-      from: myPeerId,
-      answer: answer
-    });
-    
-    console.log('📤 Отправлен WebRTC answer');
-    
-  } catch (error) {
-    console.error('❌ Ошибка обработки offer:', error);
-  }
+  const pc = await createPeerConnection(from, 'Участник', false);
+  await pc.setRemoteDescription(new RTCSessionDescription(offer));
+  
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  
+  socket.emit('webrtc-answer', {
+    to: from,
+    from: myPeerId,
+    answer: answer
+  });
 }
 
 function addParticipant(id, name, stream, isMe = false) {
-  // Проверяем, не добавлен ли уже
-  if (document.querySelector(`[data-peer-id="${id}"]`)) {
-    console.log('⚠️ Участник уже добавлен:', id);
-    return;
-  }
-  
-  console.log('➕ Добавляем участника:', { id, name, isMe, hasStream: !!stream });
+  if (document.querySelector(`[data-peer-id="${id}"]`)) return;
   
   const card = document.createElement('div');
   card.dataset.peerId = id;
-  card.dataset.self = isMe ? 'true' : '';
-  card.className = `glass rounded-3xl p-6 flex flex-col items-center text-center neon ${isMe ? 'speaking' : ''}`;
+  card.className = 'glass rounded-3xl p-6 flex flex-col items-center text-center neon';
   
   card.innerHTML = `
-    <div class="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-4xl font-bold text-white mb-4 overflow-hidden">
-      <span class="text-white text-2xl font-bold">${name.slice(0,2).toUpperCase()}</span>
+    <div class="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-4xl font-bold text-white mb-4">
+      ${name.slice(0,2).toUpperCase()}
     </div>
     <div class="text-xl font-semibold text-cyan-100">${name}${isMe ? ' (ты)' : ''}</div>
     <div class="text-sm text-cyan-400 mt-1">${isMe ? (micOn ? '🎤 Говорит' : '🔇 Микрофон выкл.') : 'Участник'}</div>
@@ -384,86 +273,91 @@ function addParticipant(id, name, stream, isMe = false) {
   
   if (stream) {
     const audio = document.createElement('audio');
-    audio.id = `audio-${id}`;
     audio.autoplay = true;
-    audio.playsinline = true;
     audio.muted = isMe;
     audio.srcObject = stream;
-    
-    audio.onloadedmetadata = () => {
-      console.log(`🎵 Аудио метаданные загружены для ${name}`);
-      audio.play().catch(e => {
-        console.log(`⚠️ Автовоспроизведение заблокировано для ${name}:`, e.message);
-      });
-    };
-    
-    audio.onplay = () => {
-      console.log(`▶️ Аудио воспроизводится для ${name}`);
-    };
-    
-    audio.onerror = (e) => {
-      console.error(`🔇 Ошибка аудио для ${name}:`, e);
-    };
-    
     card.appendChild(audio);
-    
-    // Анализ аудио для индикации речи
-    if (!isMe) {
-      startAudioAnalysis(stream, card);
-    }
   }
   
-  const participantsDiv = document.getElementById('participants');
-  if (participantsDiv) {
-    participantsDiv.appendChild(card);
-  }
+  document.getElementById('participants').appendChild(card);
 }
 
-function removeParticipant(peerId) {
-  const card = document.querySelector(`[data-peer-id="${peerId}"]`);
-  if (card) {
-    card.remove();
-    console.log('➖ Удален участник:', peerId);
-  }
-}
-
-function startAudioAnalysis(stream, card) {
-  try {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const analyser = audioContext.createAnalyser();
-    const microphone = audioContext.createMediaStreamSource(stream);
+function toggleMicrophone() {
+  if (!myStream) return;
+  
+  const audioTrack = myStream.getAudioTracks()[0];
+  if (audioTrack) {
+    micOn = !audioTrack.enabled;
+    audioTrack.enabled = micOn;
     
-    microphone.connect(analyser);
-    analyser.fftSize = 256;
+    console.log('Микрофон:', micOn ? 'ВКЛ' : 'ВЫКЛ');
     
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    
-    function detectSpeaking() {
-      analyser.getByteFrequencyData(dataArray);
-      
-      let sum = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        sum += dataArray[i];
+    // Обновляем статус
+    const myCard = document.querySelector('[data-self="true"]');
+    if (myCard) {
+      const statusDiv = myCard.querySelector('.text-sm');
+      if (statusDiv) {
+        statusDiv.textContent = micOn ? '🎤 Говорит' : '🔇 Микрофон выкл.';
       }
-      const average = sum / bufferLength;
-      
-      const isSpeaking = average > 10;
-      
-      if (isSpeaking) {
-        card.classList.add('speaking');
-      } else {
-        card.classList.remove('speaking');
-      }
-      
-      requestAnimationFrame(detectSpeaking);
     }
-    
-    detectSpeaking();
-  } catch (e) {
-    console.error('Ошибка анализа аудио:', e);
   }
 }
 
-// Остальные функции (initEventListeners, updateUserProfile, и т.д.)
-// Оставьте их как в предыдущем коде, но убедитесь что они есть
+function sendMessage() {
+  const chatInput = document.getElementById('chat-input');
+  const text = chatInput?.value.trim();
+  
+  if (!text) return;
+
+  // Добавляем сообщение
+  addMessage(userName, text, true);
+  
+  // Отправляем на сервер
+  socket.emit('chat-message', { 
+    room: currentRoom, 
+    name: userName, 
+    text 
+  });
+
+  chatInput.value = '';
+  chatInput.focus();
+}
+
+function addMessage(name, text, isSelf) {
+  const chatMessages = document.getElementById('chat-messages');
+  if (!chatMessages) return;
+  
+  const msg = document.createElement('div');
+  msg.className = `message ${isSelf ? 'message-self' : 'message-other'}`;
+  msg.innerHTML = `
+    <div class="flex items-start gap-2">
+      <div class="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-white font-bold text-sm">
+        ${name.slice(0,2).toUpperCase()}
+      </div>
+      <div>
+        <div class="font-semibold text-sm ${isSelf ? 'text-cyan-300' : 'text-cyan-200'}">${name}</div>
+        <div class="mt-1">${text}</div>
+      </div>
+    </div>
+  `;
+  
+  chatMessages.appendChild(msg);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// Экспорт для глобального использования
+window.joinGroupHandler = function(groupId) {
+  console.log('Войти в группу:', groupId);
+};
+
+window.sendMessageToFriendHandler = function(friendUsername) {
+  const message = prompt(`Отправить сообщение ${friendUsername}:`);
+  if (message) {
+    socket.emit('private-message', {
+      to: friendUsername,
+      from: userName,
+      text: message
+    });
+    alert(`Сообщение отправлено ${friendUsername}`);
+  }
+};
