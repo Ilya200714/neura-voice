@@ -1,6 +1,7 @@
 [build]
 builder = "nixpacks"
-builderOptions = {}
+buildCommand = "npm install"
+startCommand = "npm start"
 
 [deploy]
 healthCheckPath = "/health"

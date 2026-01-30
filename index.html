@@ -115,82 +115,52 @@
     .animate-slideInRight {
       animation: slideInRight 0.3s ease;
     }
-      /* Стили для медиа сообщений */
-.media-container {
-  max-width: 300px;
-  margin-top: 4px;
-}
-
-.media-content {
-  max-width: 100%;
-  max-height: 300px;
-  object-fit: contain;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.3);
-}
-
-.media-preview {
-  max-width: 100%;
-  border-radius: 8px;
-  margin-top: 4px;
-  background: transparent;
-  border: none;
-}
-
-/* Убираем обводку у медиа внутри сообщений */
-.message-self .media-container,
-.message-other .media-container {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-.message-self img,
-.message-other img,
-.message-self video,
-.message-other video {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-      /* Стили для медиа сообщений */
-.media-container {
-  max-width: 300px;
-  margin-top: 4px;
-}
-
-.media-content {
-  max-width: 100%;
-  max-height: 300px;
-  object-fit: contain;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.3);
-}
-
-.media-preview {
-  max-width: 100%;
-  border-radius: 8px;
-  margin-top: 4px;
-  background: transparent;
-  border: none;
-}
-
-/* Убираем обводку у медиа внутри сообщений */
-.message-self .media-container,
-.message-other .media-container {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-.message-self img,
-.message-other img,
-.message-self video,
-.message-other video {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
+    /* Стили для медиа сообщений */
+    .media-container {
+      max-width: 300px;
+      margin-top: 4px;
+    }
+    .media-content {
+      max-width: 100%;
+      max-height: 300px;
+      object-fit: contain;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+    }
+    .media-preview {
+      max-width: 100%;
+      border-radius: 8px;
+      margin-top: 4px;
+      background: transparent;
+      border: none;
+    }
+    /* Убираем обводку у медиа внутри сообщений */
+    .message-self .media-container,
+    .message-other .media-container {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+    .message-self img,
+    .message-other img,
+    .message-self video,
+    .message-other video {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    /* Стили для индикатора подключения */
+    #connection-status {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      z-index: 1000;
+      backdrop-filter: blur(10px);
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -199,7 +169,7 @@
   <div id="login-screen" class="flex items-center justify-center min-h-screen p-6 bg-gradient-to-br from-black to-blue-950">
     <div class="glass rounded-3xl p-12 w-full max-w-lg neon">
       <h1 class="text-5xl font-bold text-center mb-12 text-cyan-200">Neura Voice</h1>
-      <input type="text" id="login-username" placeholder="Логин" class="w-full px-6 py-5 mb-6 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 " text-gray-200 placeholder-cyan-500">
+      <input type="text" id="login-username" placeholder="Логин" class="w-full px-6 py-5 mb-6 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-gray-200 placeholder-cyan-500">
       <input type="password" id="login-password" placeholder="Пароль" class="w-full px-6 py-5 mb-8 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-gray-200 placeholder-cyan-500">
       <button id="login-btn" class="w-full py-5 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 rounded-2xl text-white font-bold text-xl transition btn-glow">Войти</button>
       <p class="text-center mt-8 text-cyan-400 text-lg">Нет аккаунта? <button id="to-register-btn" class="text-cyan-200 underline hover:text-cyan-100 font-semibold">Зарегистрироваться</button></p>
@@ -232,7 +202,7 @@
         </div>
         <div>
           <h3 id="user-name" class="text-2xl font-bold text-cyan-100">Ты</h3>
-          <p class="text-sm text-cyan-400">активна</p>
+          <p class="text-sm text-cyan-400">активен</p>
         </div>
       </div>
 
@@ -336,7 +306,7 @@
         <input type="file" id="media-upload" accept="image/*,video/*" class="hidden">
         
         <!-- Поле ввода сообщения -->
-        <input id="chat-input" placeholder="Напиши сообщение..." class="flex-1 px-6 py-4 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-gray-200 placeholder-cyan-500 focus:text-gray-200 placeholder-cyan-500">
+        <input id="chat-input" placeholder="Напиши сообщение..." class="flex-1 px-6 py-4 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-gray-200 placeholder-cyan-500">
         
         <!-- Кнопка отправки -->
         <button id="send-btn" class="p-5 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 rounded-2xl text-white neon-border btn-glow">
@@ -346,20 +316,20 @@
         <!-- Палитра эмодзи -->
         <div id="emoji-picker" class="emoji-picker hidden">
           <span onclick="addEmojiToInput('😊')">😊</span>
-            <span onclick="addEmojiToInput('😂')">😂</span>
-            <span onclick="addEmojiToInput('❤️')">❤</span>
-            <span onclick="addEmojiToInput('👍')">👍</span>
-            <span onclick="addEmojiToInput('🔥')">🔥</span>
-            <span onclick="addEmojiToInput('🎉')">🎉</span>
-            <span onclick="addEmojiToInput('🤔')">🤔</span>
-            <span onclick="addEmojiToInput('😎')">😎</span>
-            <span onclick="addEmojiToInput('🥳')">🥳</span>
-            <span onclick="addEmojiToInput('👀')">👀</span>
-            <span onclick="addEmojiToInput('😍')">😍</span>
-            <span onclick="addEmojiToInput('😢')">😢</span>
-            <span onclick="addEmojiToInput('🤣')">🤣</span>
-            <span onclick="addEmojiToInput('😡')">😡</span>
-            <span onclick="addEmojiToInput('🎶')">🎶</span>
+          <span onclick="addEmojiToInput('😂')">😂</span>
+          <span onclick="addEmojiToInput('❤️')">❤️</span>
+          <span onclick="addEmojiToInput('👍')">👍</span>
+          <span onclick="addEmojiToInput('🔥')">🔥</span>
+          <span onclick="addEmojiToInput('🎉')">🎉</span>
+          <span onclick="addEmojiToInput('🤔')">🤔</span>
+          <span onclick="addEmojiToInput('😎')">😎</span>
+          <span onclick="addEmojiToInput('🥳')">🥳</span>
+          <span onclick="addEmojiToInput('👀')">👀</span>
+          <span onclick="addEmojiToInput('😍')">😍</span>
+          <span onclick="addEmojiToInput('😢')">😢</span>
+          <span onclick="addEmojiToInput('🤣')">🤣</span>
+          <span onclick="addEmojiToInput('😡')">😡</span>
+          <span onclick="addEmojiToInput('🎶')">🎶</span>
         </div>
       </div>
     </aside>
@@ -468,8 +438,8 @@
 
 <script src="app.js"></script>
 <script>
-  // Глобальная функция для эмодзи (ИСПРАВЛЕННОЕ ИМЯ)
-   window.addEmojiToInput = function(emoji) {
+  // Глобальная функция для эмодзи
+  window.addEmojiToInput = function(emoji) {
     const chatInput = document.getElementById('chat-input');
     if (chatInput) {
       chatInput.value += emoji;
@@ -486,11 +456,17 @@
     if (typeof lucide !== 'undefined') {
       lucide.createIcons();
     }
-    console.log('Приложение загружено');
+    console.log('✅ HTML загружен');
+    
+    // Автофокус на поле логина
+    const loginInput = document.getElementById('login-username');
+    if (loginInput) {
+      loginInput.focus();
+    }
   });
   
   // Глобальные функции для групп
- // window.joinGroup = function(groupId) {
+  window.joinGroup = function(groupId) {
     if (window.joinGroupHandler) {
       window.joinGroupHandler(groupId);
     }
@@ -513,14 +489,6 @@
       window.sendMessageToFriendHandler(friendUsername);
     }
   };
-  */
-  // Инициализация иконок при загрузке
-  document.addEventListener('DOMContentLoaded', () => {
-    if (typeof lucide !== 'undefined') {
-      lucide.createIcons();
-    }
-    console.log('Приложение загружено');
-  });
 </script>
 </body>
 </html>
