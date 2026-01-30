@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Neura Voice</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Иконки -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Socket.io -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <!-- PeerJS -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <style>
+    :root {
+      --neon: #00f0ff;
+      --neon-glow: rgba(0, 240, 255, 0.5);
+      --bg: #0a0e1a;
+    }
+    body {
+      background: var(--bg);
+      color: #e0f7ff;
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      font-family: system-ui, sans-serif;
+    }
+    .glass {
+      background: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(0, 240, 255, 0.2);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .neon {
+      box-shadow: 0 0 15px var(--neon-glow);
+    }
+    .speaking {
+      animation: pulse 1.4s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.07); }
+    }
+    .message {
+      max-width: 75%;
+      padding: 12px 18px;
+      border-radius: 20px;
+      margin-bottom: 12px;
+      animation: fadeIn 0.3s ease;
+    }
+    .message-self {
+      background: linear-gradient(135deg, #0ea5e9, #3b82f6);
+      color: white;
+      margin-left: auto;
+    }
+    .message-other {
+      background: rgba(30, 41, 59, 0.9);
+    }
+    .media-preview {
+      max-width: 280px;
+      border-radius: 12px;
+      margin-top: 8px;
+    }
+    .btn-glow:hover {
+      box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+      transform: translateY(-2px);
+      transition: all 0.3s ease;
+    }
+    .emoji-picker {
+      position: absolute;
+      bottom: 100%;
+      right: 0;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      border-radius: 12px;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      z-index: 50;
+      margin-bottom: 10px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .emoji-picker span {
+      font-size: 24px;
+      cursor: pointer;
+      padding: 5px;
+      border-radius: 6px;
+      text-align: center;
+      transition: background 0.2s;
+    }
+    .emoji-picker span:hover {
+      background: rgba(0, 240, 255, 0.2);
+    }
+    .hidden {
+      display: none !important;
+    }
+    .neon-border {
+      border: 1px solid rgba(0, 240, 255, 0.2);
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slideInRight {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .animate-fadeIn {
+      animation: fadeIn 0.3s ease;
+    }
+    .animate-slideInRight {
+      animation: slideInRight 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Экран входа -->
+  <div id="login-screen" class="flex items-center justify-center min-h-screen p-6 bg-gradient-to-br from-black to-blue-950">
+    <div class="glass rounded-3xl p-12 w-full max-w-lg neon">
+      <h1 class="text-5xl font-bold text-center mb-12 text-cyan-200">Neura Voice</h1>
+      <input type="text" id="login-username" placeholder="Логин" class="w-full px-6 py-5 mb-6 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-white placeholder-cyan-500 text-lg">
+      <input type="password" id="login-password" placeholder="Пароль" class="w-full px-6 py-5 mb-8 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-white placeholder-cyan-500 text-lg">
+      <button id="login-btn" class="w-full py-5 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 rounded-2xl text-white font-bold text-xl transition btn-glow">Войти</button>
+      <p class="text-center mt-8 text-cyan-400 text-lg">Нет аккаунта? <button id="to-register-btn" class="text-cyan-200 underline hover:text-cyan-100 font-semibold">Зарегистрироваться</button></p>
+      <p id="auth-error" class="text-red-400 text-center mt-6 text-lg"></p>
+    </div>
+  </div>
+
+  <!-- Экран регистрации -->
+  <div id="register-screen" class="hidden flex items-center justify-center min-h-screen p-6 bg-gradient-to-br from-black to-blue-950">
+    <div class="glass rounded-3xl p-12 w-full max-w-lg neon">
+      <h1 class="text-5xl font-bold text-center mb-12 text-cyan-200">Регистрация</h1>
+      <input type="text" id="register-name" placeholder="Имя / Ник" class="w-full px-6 py-5 mb-6 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-white placeholder-cyan-500 text-lg">
+      <input type="text" id="register-username" placeholder="Логин" class="w-full px-6 py-5 mb-6 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-white placeholder-cyan-500 text-lg">
+      <input type="password" id="register-password" placeholder="Пароль" class="w-full px-6 py-5 mb-8 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-white placeholder-cyan-500 text-lg">
+      <button id="register-btn" class="w-full py-5 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 rounded-2xl text-white font-bold text-xl transition btn-glow">Создать аккаунт</button>
+      <p class="text-center mt-8 text-cyan-400 text-lg"><button id="back-to-login-btn" class="text-cyan-200 underline hover:text-cyan-100 font-semibold">Уже есть аккаунт? Войти</button></p>
+      <p id="register-error" class="text-red-400 text-center mt-6 text-lg"></p>
+    </div>
+  </div>
+
+  <!-- Основной интерфейс -->
+  <div id="main-screen" class="hidden flex h-screen">
+
+    <!-- Левая панель -->
+    <aside class="w-80 glass border-r border-cyan-900/30 flex-col overflow-y-auto">
+      <div class="p-8 border-b border-cyan-900/30 bg-black/30 flex items-center gap-4">
+        <div id="user-avatar-container" class="w-16 h-16 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-3xl font-bold text-white neon overflow-hidden">
+          <img id="user-avatar-img" src="" alt="Аватар" class="w-full h-full object-cover hidden"/>
+          <span id="user-initial">Т</span>
+        </div>
+        <div>
+          <h3 id="user-name" class="text-2xl font-bold text-cyan-100">Ты</h3>
+          <p class="text-sm text-cyan-400">активна</p>
+        </div>
+      </div>
+
+      <div class="p-8 space-y-6">
+        <!-- Кнопка микрофона -->
+        <button id="mic-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+          <i data-lucide="mic" class="w-7 h-7 text-cyan-300"></i>
+          <span class="text-lg">Микрофон</span>
+        </button>
+        
+        <!-- Кнопка камеры -->
+        <button id="camera-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+          <i data-lucide="video" class="w-7 h-7 text-cyan-300"></i>
+          <span class="text-lg">Камера</span>
+        </button>
+        
+        <!-- Кнопка демонстрации экрана -->
+        <button id="screen-share-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+          <i data-lucide="monitor" class="w-7 h-7 text-cyan-300"></i>
+          <span class="text-lg">Экран</span>
+        </button>
+        
+        <!-- Кнопка приватной ссылки -->
+        <button id="copy-link-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+          <i data-lucide="link" class="w-7 h-7 text-cyan-300"></i>
+          <span class="text-lg">Приватная ссылка</span>
+        </button>
+        
+        <!-- Кнопка настроек -->
+        <button id="settings-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+          <i data-lucide="settings" class="w-7 h-7 text-cyan-300"></i>
+          <span class="text-lg">Настройки</span>
+        </button>
+        
+        <!-- Кнопка добавления в друзья -->
+        <button id="add-friend-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+          <i data-lucide="user-plus" class="w-7 h-7 text-cyan-300"></i>
+          <span class="text-lg">Добавить друга</span>
+        </button>
+        
+        <!-- Кнопка выхода -->
+        <button id="logout-btn" class="w-full flex items-center gap-4 p-5 bg-red-600/60 rounded-2xl hover:bg-red-700/80 transition neon-border btn-glow">
+          <i data-lucide="log-out" class="w-7 h-7 text-red-300"></i>
+          <span class="text-lg">Выйти</span>
+        </button>
+      </div>
+
+      <!-- Группы -->
+      <div class="p-8 border-t border-cyan-900/30 bg-black/30">
+        <h3 class="text-lg font-semibold text-cyan-100 mb-4">Группы</h3>
+        <button id="create-group-btn" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white mb-4">
+          Создать группу
+        </button>
+        <div id="groups-list" class="space-y-3"></div>
+      </div>
+      
+      <!-- Друзья -->
+      <div class="p-8 border-t border-cyan-900/30 bg-black/30">
+        <h3 class="text-lg font-semibold text-cyan-100 mb-4">Друзья</h3>
+        <div id="friends-list" class="space-y-3">
+          <!-- Список друзей будет здесь -->
+        </div>
+      </div>
+      
+      <!-- Запросы дружбы -->
+      <div class="p-8 border-t border-cyan-900/30 bg-black/30">
+        <h3 class="text-lg font-semibold text-cyan-100 mb-4 flex items-center justify-between">
+          Запросы дружбы
+          <span id="friend-requests-count" class="bg-red-500 text-white text-xs rounded-full px-2 py-1 hidden">0</span>
+        </h3>
+        <div id="friend-requests-list" class="space-y-3">
+          <!-- Запросы дружбы будут здесь -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- Центральная часть: участники -->
+    <main class="flex-1 p-6 lg:p-8 overflow-y-auto bg-black/20">
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 lg:gap-6">
+        <div id="participants" class="contents"></div>
+      </div>
+    </main>
+
+    <!-- Правая панель: чат -->
+    <aside class="w-96 glass border-l border-cyan-900/30 flex flex-col">
+      <div class="p-6 border-b border-cyan-900/30 bg-black/30 flex justify-between items-center">
+        <h2 class="text-2xl font-bold text-cyan-100" id="chat-title">Чат</h2>
+        <button id="leave-group-btn" class="hidden px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm">Выйти из группы</button>
+      </div>
+      <div id="chat-messages" class="flex-1 p-6 overflow-y-auto space-y-4 bg-black/10"></div>
+      <div class="p-6 border-t border-cyan-900/30 bg-black/30 flex items-center gap-3 relative">
+        <!-- Кнопка эмодзи -->
+        <button id="emoji-btn" class="p-4 rounded-full bg-black/60 hover:bg-black/80">
+          <i data-lucide="smile" class="w-6 h-6 text-cyan-300"></i>
+        </button>
+        
+        <!-- Кнопка загрузки фото/видео -->
+        <label for="media-upload" class="p-4 rounded-full bg-black/60 hover:bg-black/80 cursor-pointer">
+          <i data-lucide="image" class="w-6 h-6 text-cyan-300"></i>
+        </label>
+        <input type="file" id="media-upload" accept="image/*,video/*" class="hidden">
+        
+        <!-- Поле ввода сообщения -->
+        <input id="chat-input" placeholder="Напиши сообщение..." class="flex-1 px-6 py-4 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-white placeholder-cyan-500">
+        
+        <!-- Кнопка отправки -->
+        <button id="send-btn" class="p-5 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 rounded-2xl text-white neon-border btn-glow">
+          <i data-lucide="send" class="w-6 h-6"></i>
+        </button>
+
+        <!-- Палитра эмодзи -->
+        <div id="emoji-picker" class="emoji-picker hidden">
+          <span onclick="addEmoji('😊')">😊</span>
+          <span onclick="addEmoji('😂')">😂</span>
+          <span onclick="addEmoji('❤️')">❤️</span>
+          <span onclick="addEmoji('👍')">👍</span>
+          <span onclick="addEmoji('🔥')">🔥</span>
+          <span onclick="addEmoji('🎉')">🎉</span>
+          <span onclick="addEmoji('🤔')">🤔</span>
+          <span onclick="addEmoji('😎')">😎</span>
+          <span onclick="addEmoji('🥳')">🥳</span>
+          <span onclick="addEmoji('👀')">👀</span>
+          <span onclick="addEmoji('😍')">😍</span>
+          <span onclick="addEmoji('😢')">😢</span>
+          <span onclick="addEmoji('🤣')">🤣</span>
+          <span onclick="addEmoji('😡')">😡</span>
+          <span onclick="addEmoji('🎶')">🎶</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Модалка добавления друга -->
+  <div id="add-friend-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 hidden">
+    <div class="glass rounded-3xl p-10 w-full max-w-lg neon">
+      <div class="flex justify-between items-center mb-8">
+        <h2 class="text-3xl font-bold text-cyan-100">Добавить друга</h2>
+        <button id="close-add-friend" class="text-4xl text-cyan-300 hover:text-cyan-100">×</button>
+      </div>
+      
+      <div class="mb-6">
+        <label class="block text-cyan-200 mb-3 text-lg">Логин друга</label>
+        <input type="text" id="friend-username" class="w-full px-6 py-4 bg-black/40 border border-cyan-800/60 rounded-2xl text-white focus:border-cyan-400" placeholder="Введите логин друга">
+      </div>
+      
+      <div class="flex justify-end gap-6">
+        <button id="cancel-add-friend" class="px-8 py-4 bg-black/50 hover:bg-black/70 text-cyan-300 rounded-2xl transition">Отмена</button>
+        <button id="send-friend-request" class="px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 rounded-2xl text-white transition neon-border">Отправить запрос</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка настроек -->
+  <div id="settings-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center z-50 hidden">
+    <div class="glass rounded-3xl p-10 w-full max-w-lg max-h-[90vh] overflow-y-auto neon">
+      <div class="flex justify-between items-center mb-8">
+        <h2 class="text-3xl font-bold text-cyan-100">Настройки профиля</h2>
+        <button id="close-settings" class="text-4xl text-cyan-300 hover:text-cyan-100">×</button>
+      </div>
+
+      <div class="space-y-8">
+        <!-- Имя -->
+        <div>
+          <label class="block text-cyan-200 mb-3 text-lg">Ваше имя</label>
+          <input type="text" id="profile-name" class="w-full px-6 py-4 bg-black/40 border border-cyan-800/60 rounded-2xl text-white focus:border-cyan-400" placeholder="Введите ваше имя">
+        </div>
+        
+        <!-- Аватар -->
+        <div>
+          <label class="block text-cyan-200 mb-3 text-lg">Аватар</label>
+          <div class="mb-4">
+            <div class="text-sm text-cyan-400 mb-2">Ссылка на изображение:</div>
+            <input type="text" id="profile-avatar" class="w-full px-6 py-4 bg-black/40 border border-cyan-800/60 rounded-2xl text-white focus:border-cyan-400" placeholder="https://example.com/avatar.jpg">
+            <div class="text-xs text-cyan-500 mt-2">Введите URL изображения (JPG, PNG, GIF)</div>
+          </div>
+          
+          <div class="mt-4">
+            <div class="text-sm text-cyan-400 mb-2">Или загрузите файл:</div>
+            <label class="block">
+              <input type="file" id="avatar-upload" accept="image/*" class="hidden">
+              <div class="px-6 py-4 bg-black/40 border border-cyan-800/60 rounded-2xl text-cyan-300 cursor-pointer hover:bg-black/60 text-center">
+                📁 Выбрать файл на компьютере
+              </div>
+            </label>
+            <div class="text-xs text-cyan-500 mt-2">Максимальный размер: 5MB</div>
+          </div>
+          
+          <!-- Предпросмотр аватара -->
+          <div class="mt-6">
+            <div class="text-sm text-cyan-400 mb-2">Предпросмотр:</div>
+            <div class="flex items-center gap-6">
+              <div id="avatar-preview-container" class="relative">
+                <div id="default-avatar" class="w-24 h-24 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-white text-2xl font-bold">
+                  ТИ
+                </div>
+                <img id="avatar-preview" src="" alt="Предпросмотр аватара" class="w-24 h-24 rounded-full object-cover border-2 border-cyan-500/40 absolute top-0 left-0 hidden">
+              </div>
+              <button id="remove-avatar" class="px-4 py-2 bg-red-600/50 hover:bg-red-600 rounded-lg text-sm hidden">
+                Удалить аватар
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Аудио настройки -->
+        <div>
+          <h3 class="text-lg font-semibold text-cyan-200 mb-4">Аудио настройки</h3>
+          <div class="space-y-4">
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="echo-cancellation" class="w-5 h-5 text-cyan-600 rounded focus:ring-cyan-500" checked>
+              <span class="text-cyan-100">Подавление эха</span>
+            </label>
+            
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="noise-suppression" class="w-5 h-5 text-cyan-600 rounded focus:ring-cyan-500" checked>
+              <span class="text-cyan-100">Шумоподавление</span>
+            </label>
+            
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="auto-gain-control" class="w-5 h-5 text-cyan-600 rounded focus:ring-cyan-500" checked>
+              <span class="text-cyan-100">Автоматическая регулировка громкости</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-10 flex justify-end gap-6">
+        <button id="cancel-settings" class="px-8 py-4 bg-black/50 hover:bg-black/70 text-cyan-300 rounded-2xl transition">Отмена</button>
+        <button id="save-settings" class="px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 rounded-2xl text-white transition neon-border">Сохранить изменения</button>
+      </div>
+    </div>
+  </div>
+
+<script src="app.js"></script>
+<script>
+  // Глобальные функции для эмодзи
+  window.addEmoji = function(emoji) {
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+      chatInput.value += emoji;
+      const emojiPicker = document.getElementById('emoji-picker');
+      if (emojiPicker) {
+        emojiPicker.classList.add('hidden');
+      }
+    }
+  };
+  
+  // Глобальные функции для групп
+  window.joinGroup = function(groupId) {
+    if (window.joinGroupHandler) {
+      window.joinGroupHandler(groupId);
+    }
+  };
+  
+  window.deleteGroup = function(groupId) {
+    if (window.deleteGroupHandler) {
+      window.deleteGroupHandler(groupId);
+    }
+  };
+  
+  window.inviteFriendToCall = function(friendUsername) {
+    if (window.inviteFriendToCallHandler) {
+      window.inviteFriendToCallHandler(friendUsername);
+    }
+  };
+  
+  window.sendMessageToFriend = function(friendUsername) {
+    if (window.sendMessageToFriendHandler) {
+      window.sendMessageToFriendHandler(friendUsername);
+    }
+  };
+  
+  // Инициализация иконок при загрузке
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+    console.log('Приложение загружено');
+  });
+</script>
+</body>
+</html>
