@@ -1,4 +1,8 @@
 const SOCKET_URL = window.location.origin;
+const DEBUG = true;
+function debugLog(...args) {
+  if (DEBUG) console.log('[DEBUG]', ...args);
+}
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
@@ -91,20 +95,27 @@ socket.on('auth-error', (error) => {
 });
 
 socket.on('auth-success', async (userData) => {
-  console.log('✅ Вход успешен:', userData);
+  debugLog('✅ Вход успешен:', userData);
   
-  if (!userData) {
-    console.error('❌ Нет данных пользователя');
+  if (!userData || !userData.name) {
+    console.error('❌ Некорректные данные пользователя:', userData);
     return;
   }
   
-  userName = userData.name || 'Пользователь';
+  userName = userData.name;
   userAvatar = userData.avatar || '';
   
-  // Переключаем экраны
-  document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('register-screen').classList.add('hidden');
-  document.getElementById('main-screen').classList.remove('hidden');
+  // Проверяем элементы DOM
+  const loginScreen = document.getElementById('login-screen');
+  const mainScreen = document.getElementById('main-screen');
+  
+  if (!loginScreen || !mainScreen) {
+    console.error('❌ Не найдены элементы DOM');
+    return;
+  }
+  
+  loginScreen.classList.add('hidden');
+  mainScreen.classList.remove('hidden');
   
   updateUserProfile();
   
@@ -119,6 +130,7 @@ socket.on('auth-success', async (userData) => {
   loadFriendRequests();
   
   lucide.createIcons();
+  debugLog('✅ Интерфейс инициализирован');
 });
 
 // WebRTC события
