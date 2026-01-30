@@ -3,11 +3,12 @@ const http = require('http');
 const socketIo = require('socket.io');
 const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 
-// CORS для всех запросов
+// Разрешаем запросы со всех доменов
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -15,7 +16,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Настройки CORS для Socket.io
+// Настройки Socket.io с CORS
 const io = socketIo(server, {
   cors: {
     origin: "*",
@@ -27,7 +28,7 @@ const io = socketIo(server, {
   pingInterval: 25000
 });
 
-// База данных SQLite в памяти
+// База данных SQLite
 const db = new sqlite3.Database(':memory:');
 
 // Инициализация базы данных
@@ -130,13 +131,36 @@ function initDatabase() {
 initDatabase();
 
 // Хранилище для активных пользователей
-const activeUsers = new Map();
-const userSockets = new Map();
+const activeUsers = new Map(); // username -> socket.id
+const userSockets = new Map(); // socket.id -> {username, peerId, room, ...}
+
+// Вспомогательные функции
+function getUsersInRoom(room) {
+  const roomSockets = io.sockets.adapter.rooms.get(room);
+  if (!roomSockets) return [];
+  
+  const users = [];
+  roomSockets.forEach(socketId => {
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket && socket.username) {
+      users.push({
+        username: socket.username,
+        name: socket.userData?.name || socket.username,
+        peerId: socket.peerId,
+        socketId: socketId
+      });
+    }
+  });
+  return users;
+}
 
 // Socket.io события
 io.on('connection', (socket) => {
   console.log('✅ Новое подключение:', socket.id);
-  userSockets.set(socket.id, { connectedAt: new Date() });
+  userSockets.set(socket.id, { 
+    connectedAt: new Date(),
+    socketId: socket.id
+  });
 
   // Регистрация
   socket.on('register', ({ name, username, password }) => {
@@ -269,34 +293,56 @@ io.on('connection', (socket) => {
     const displayName = name || socket.userData?.name || socket.username || 'Участник';
     console.log(`👤 ${displayName} присоединяется к комнате ${room} с peerId ${peerId}`);
     
+    // Получаем текущих пользователей в комнате
+    const currentUsers = getUsersInRoom(room);
+    console.log(`👥 В комнате ${room} сейчас: ${currentUsers.length} пользователей`);
+    
+    // Выходим из предыдущей комнаты если была
+    if (socket.currentRoom) {
+      socket.leave(socket.currentRoom);
+      socket.to(socket.currentRoom).emit('user-left', {
+        peerId: socket.peerId
+      });
+    }
+    
     socket.join(room);
     socket.currentRoom = room;
     socket.peerId = peerId;
     socket.roomName = displayName;
     
-    const roomSockets = io.sockets.adapter.rooms.get(room);
-    if (roomSockets) {
-      console.log(`👥 В комнате ${room} сейчас:`, Array.from(roomSockets).length, 'участников');
-      
-      roomSockets.forEach(socketId => {
-        if (socketId !== socket.id) {
-          const otherSocket = io.sockets.sockets.get(socketId);
-          if (otherSocket && otherSocket.peerId && otherSocket.roomName) {
-            console.log(`📤 Отправляем ${displayName} информацию о ${otherSocket.roomName}`);
+    userSockets.set(socket.id, {
+      ...userSockets.get(socket.id),
+      currentRoom: room,
+      peerId: peerId,
+      roomName: displayName
+    });
+    
+    // Отправляем новому пользователю список уже подключенных участников
+    if (currentUsers.length > 0) {
+      console.log(`📤 Отправляем ${displayName} информацию о ${currentUsers.length} участниках`);
+      currentUsers.forEach(user => {
+        if (user.socketId !== socket.id && user.peerId) {
+          // Задержка для стабильности соединения
+          setTimeout(() => {
             socket.emit('user-joined', {
-              peerId: otherSocket.peerId,
-              name: otherSocket.roomName
+              peerId: user.peerId,
+              name: user.name
             });
-          }
+          }, 500);
         }
       });
     }
     
+    // Уведомляем других в комнате о новом участнике
     console.log(`📢 Уведомляем комнату ${room} о новом участнике ${displayName}`);
     socket.to(room).emit('user-joined', {
       peerId,
       name: displayName
     });
+    
+    // Отправляем обновленную информацию о комнате
+    const updatedUsers = getUsersInRoom(room);
+    console.log(`✅ ${displayName} присоединился. Теперь в комнате: ${updatedUsers.length} участников`);
   });
 
   // WebRTC сигналы
@@ -305,6 +351,7 @@ io.on('connection', (socket) => {
     const recipientSocketId = activeUsers.get(to);
     if (recipientSocketId) {
       io.to(recipientSocketId).emit('webrtc-offer', { from, offer });
+      console.log(`✅ Offer переслан к ${to}`);
     } else {
       console.log(`❌ Получатель ${to} не найден`);
     }
@@ -315,6 +362,9 @@ io.on('connection', (socket) => {
     const recipientSocketId = activeUsers.get(to);
     if (recipientSocketId) {
       io.to(recipientSocketId).emit('webrtc-answer', { from, answer });
+      console.log(`✅ Answer переслан к ${to}`);
+    } else {
+      console.log(`❌ Получатель ${to} не найден`);
     }
   });
 
@@ -385,6 +435,7 @@ io.on('connection', (socket) => {
             members: allMembers
           });
           
+          // Обновляем список групп для всех участников
           allMembers.forEach(member => {
             const memberSocketId = activeUsers.get(member);
             if (memberSocketId) {
@@ -419,11 +470,13 @@ io.on('connection', (socket) => {
     socket.join(`group_${groupId}`);
     socket.currentGroup = groupId;
     
+    // Проверяем, является ли пользователь участником группы
     db.get(
       'SELECT * FROM group_members WHERE group_id = ? AND username = ?',
       [groupId, socket.username],
       (err, row) => {
         if (!row && socket.username) {
+          // Если не участник, добавляем
           db.run(
             'INSERT OR IGNORE INTO group_members (group_id, username) VALUES (?, ?)',
             [groupId, socket.username]
@@ -432,6 +485,7 @@ io.on('connection', (socket) => {
       }
     );
     
+    // Загружаем историю группы
     db.all(
       'SELECT username as name, message, timestamp FROM group_messages WHERE group_id = ? ORDER BY timestamp ASC LIMIT 100',
       [groupId],
@@ -442,6 +496,7 @@ io.on('connection', (socket) => {
       }
     );
     
+    // Уведомляем других участников
     socket.to(`group_${groupId}`).emit('user-joined-group', {
       userId,
       name: name || socket.userData?.name || 'Участник',
@@ -696,14 +751,17 @@ io.on('connection', (socket) => {
       activeUsers.delete(socket.username);
     }
     
-    userSockets.delete(socket.id);
-    
+    // Уведомляем о выходе из комнаты
     if (socket.currentRoom && socket.peerId) {
       socket.to(socket.currentRoom).emit('user-left', {
-        peerId: socket.peerId
+        peerId: socket.peerId,
+        name: socket.roomName || socket.username
       });
     }
     
+    userSockets.delete(socket.id);
+    
+    // Статистика
     console.log(`📊 Активные пользователи: ${activeUsers.size}`);
     console.log(`📊 Открытых соединений: ${userSockets.size}`);
   });
@@ -835,4 +893,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`   👤 Логин: test1 / Пароль: 123`);
   console.log(`   👤 Логин: test2 / Пароль: password`);
   console.log(`   👤 Логин: admin / Пароль: admin`);
+  console.log(`\n⚡ WebRTC поддерживает P2P соединение через разные сети!`);
 });

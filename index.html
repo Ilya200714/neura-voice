@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Neura Voice</title>
+  <title>Neura Voice - Голосовой чат</title>
 
   <!-- Tailwind CSS -->
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
@@ -11,8 +11,6 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Socket.io -->
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <!-- PeerJS -->
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 
   <style>
     :root {
@@ -161,6 +159,151 @@
       backdrop-filter: blur(10px);
       font-weight: bold;
     }
+    /* Кнопка тестирования */
+    #test-connection {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      background: linear-gradient(135deg, #8b5cf6, #6366f1);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      z-index: 1000;
+      border: none;
+      box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);
+      transition: all 0.3s ease;
+    }
+    #test-connection:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(139, 92, 246, 0.6);
+    }
+    /* Информация о комнате */
+    #room-info {
+      position: fixed;
+      top: 60px;
+      right: 20px;
+      background: rgba(15, 23, 42, 0.9);
+      padding: 10px 15px;
+      border-radius: 10px;
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      font-size: 12px;
+      z-index: 1000;
+      max-width: 300px;
+    }
+    /* Анимация говорящего */
+    .participant-avatar.speaking {
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 5px rgba(0, 240, 255, 0.5); }
+      50% { box-shadow: 0 0 20px rgba(0, 240, 255, 1); }
+      100% { box-shadow: 0 0 5px rgba(0, 240, 255, 0.5); }
+    }
+    /* Уровень звука */
+    .audio-level {
+      width: 100%;
+      height: 4px;
+      background: rgba(0, 240, 255, 0.2);
+      border-radius: 2px;
+      margin-top: 5px;
+      overflow: hidden;
+    }
+    .audio-level-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #00f0ff, #3b82f6);
+      width: 0%;
+      transition: width 0.1s ease;
+    }
+    /* Кастомный скроллбар */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 240, 255, 0.1);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 240, 255, 0.4);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 240, 255, 0.6);
+    }
+    /* Адаптивность */
+    @media (max-width: 1024px) {
+      aside {
+        width: 64px !important;
+        overflow-x: hidden;
+      }
+      aside span:not(.icon-text) {
+        display: none;
+      }
+      .chat-input-container {
+        flex-direction: column;
+        gap: 10px;
+      }
+      .chat-input-container input {
+        width: 100%;
+      }
+    }
+    /* Анимация появления участников */
+    .participant-card {
+      animation: slideInUp 0.5s ease;
+    }
+    @keyframes slideInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    /* Статус микрофона */
+    .mic-status {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-left: 5px;
+    }
+    .mic-status.on {
+      background-color: #10b981;
+      box-shadow: 0 0 10px #10b981;
+    }
+    .mic-status.off {
+      background-color: #ef4444;
+    }
+    /* Тултипы */
+    [data-tooltip] {
+      position: relative;
+    }
+    [data-tooltip]:before {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.95);
+      color: white;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      white-space: nowrap;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s;
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      z-index: 1000;
+    }
+    [data-tooltip]:hover:before {
+      opacity: 1;
+      visibility: visible;
+    }
   </style>
 </head>
 <body>
@@ -208,43 +351,44 @@
 
       <div class="p-8 space-y-6">
         <!-- Кнопка микрофона -->
-        <button id="mic-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+        <button id="mic-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow" data-tooltip="Включить/выключить микрофон">
           <i data-lucide="mic" class="w-7 h-7 text-cyan-300"></i>
           <span class="text-lg">Микрофон</span>
+          <span class="mic-status on"></span>
         </button>
         
         <!-- Кнопка камеры -->
-        <button id="camera-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+        <button id="camera-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow" data-tooltip="Включить/выключить камеру">
           <i data-lucide="video" class="w-7 h-7 text-cyan-300"></i>
           <span class="text-lg">Камера</span>
         </button>
         
         <!-- Кнопка демонстрации экрана -->
-        <button id="screen-share-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+        <button id="screen-share-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow" data-tooltip="Поделиться экраном">
           <i data-lucide="monitor" class="w-7 h-7 text-cyan-300"></i>
           <span class="text-lg">Экран</span>
         </button>
         
         <!-- Кнопка приватной ссылки -->
-        <button id="copy-link-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+        <button id="copy-link-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow" data-tooltip="Скопировать ссылку на комнату">
           <i data-lucide="link" class="w-7 h-7 text-cyan-300"></i>
           <span class="text-lg">Приватная ссылка</span>
         </button>
         
         <!-- Кнопка настроек -->
-        <button id="settings-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+        <button id="settings-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow" data-tooltip="Настройки профиля">
           <i data-lucide="settings" class="w-7 h-7 text-cyan-300"></i>
           <span class="text-lg">Настройки</span>
         </button>
         
         <!-- Кнопка добавления в друзья -->
-        <button id="add-friend-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow">
+        <button id="add-friend-btn" class="w-full flex items-center gap-4 p-5 bg-black/60 rounded-2xl hover:bg-black/80 transition neon-border btn-glow" data-tooltip="Добавить друга">
           <i data-lucide="user-plus" class="w-7 h-7 text-cyan-300"></i>
           <span class="text-lg">Добавить друга</span>
         </button>
         
         <!-- Кнопка выхода -->
-        <button id="logout-btn" class="w-full flex items-center gap-4 p-5 bg-red-600/60 rounded-2xl hover:bg-red-700/80 transition neon-border btn-glow">
+        <button id="logout-btn" class="w-full flex items-center gap-4 p-5 bg-red-600/60 rounded-2xl hover:bg-red-700/80 transition neon-border btn-glow" data-tooltip="Выйти из аккаунта">
           <i data-lucide="log-out" class="w-7 h-7 text-red-300"></i>
           <span class="text-lg">Выйти</span>
         </button>
@@ -253,7 +397,7 @@
       <!-- Группы -->
       <div class="p-8 border-t border-cyan-900/30 bg-black/30">
         <h3 class="text-lg font-semibold text-cyan-100 mb-4">Группы</h3>
-        <button id="create-group-btn" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white mb-4">
+        <button id="create-group-btn" class="w-full py-3 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white mb-4" data-tooltip="Создать новую группу">
           Создать группу
         </button>
         <div id="groups-list" class="space-y-3"></div>
@@ -281,6 +425,13 @@
 
     <!-- Центральная часть: участники -->
     <main class="flex-1 p-6 lg:p-8 overflow-y-auto bg-black/20">
+      <div class="mb-6">
+        <h2 class="text-3xl font-bold text-cyan-100 mb-2">Участники голосового чата</h2>
+        <p class="text-cyan-400" id="room-info-text">Комната: <span id="current-room-display" class="font-bold">загрузка...</span></p>
+        <div class="audio-level mt-4 hidden" id="audio-level-indicator">
+          <div class="audio-level-bar" id="audio-level-bar"></div>
+        </div>
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 lg:gap-6">
         <div id="participants" class="contents"></div>
       </div>
@@ -289,18 +440,18 @@
     <!-- Правая панель: чат -->
     <aside class="w-96 glass border-l border-cyan-900/30 flex flex-col">
       <div class="p-6 border-b border-cyan-900/30 bg-black/30 flex justify-between items-center">
-        <h2 class="text-2xl font-bold text-cyan-100" id="chat-title">Чат</h2>
+        <h2 class="text-2xl font-bold text-cyan-100" id="chat-title">Чат комнаты</h2>
         <button id="leave-group-btn" class="hidden px-4 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm">Выйти из группы</button>
       </div>
       <div id="chat-messages" class="flex-1 p-6 overflow-y-auto space-y-4 bg-black/10"></div>
-      <div class="p-6 border-t border-cyan-900/30 bg-black/30 flex items-center gap-3 relative">
+      <div class="p-6 border-t border-cyan-900/30 bg-black/30 flex items-center gap-3 relative chat-input-container">
         <!-- Кнопка эмодзи -->
-        <button id="emoji-btn" class="p-4 rounded-full bg-black/60 hover:bg-black/80">
+        <button id="emoji-btn" class="p-4 rounded-full bg-black/60 hover:bg-black/80" data-tooltip="Эмодзи">
           <i data-lucide="smile" class="w-6 h-6 text-cyan-300"></i>
         </button>
         
         <!-- Кнопка загрузки фото/видео -->
-        <label for="media-upload" class="p-4 rounded-full bg-black/60 hover:bg-black/80 cursor-pointer">
+        <label for="media-upload" class="p-4 rounded-full bg-black/60 hover:bg-black/80 cursor-pointer" data-tooltip="Отправить файл">
           <i data-lucide="image" class="w-6 h-6 text-cyan-300"></i>
         </label>
         <input type="file" id="media-upload" accept="image/*,video/*" class="hidden">
@@ -309,7 +460,7 @@
         <input id="chat-input" placeholder="Напиши сообщение..." class="flex-1 px-6 py-4 bg-black/40 border border-cyan-800/60 rounded-2xl focus:outline-none focus:border-cyan-400 text-gray-200 placeholder-cyan-500">
         
         <!-- Кнопка отправки -->
-        <button id="send-btn" class="p-5 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 rounded-2xl text-white neon-border btn-glow">
+        <button id="send-btn" class="p-5 bg-gradient-to-r from-cyan-600 to-blue-700 hover:from-cyan-500 rounded-2xl text-white neon-border btn-glow" data-tooltip="Отправить сообщение">
           <i data-lucide="send" class="w-6 h-6"></i>
         </button>
 
@@ -330,6 +481,11 @@
           <span onclick="addEmojiToInput('🤣')">🤣</span>
           <span onclick="addEmojiToInput('😡')">😡</span>
           <span onclick="addEmojiToInput('🎶')">🎶</span>
+          <span onclick="addEmojiToInput('🎤')">🎤</span>
+          <span onclick="addEmojiToInput('🎮')">🎮</span>
+          <span onclick="addEmojiToInput('📱')">📱</span>
+          <span onclick="addEmojiToInput('💻')">💻</span>
+          <span onclick="addEmojiToInput('🎵')">🎵</span>
         </div>
       </div>
     </aside>
@@ -427,6 +583,24 @@
             </label>
           </div>
         </div>
+        
+        <!-- WebRTC настройки -->
+        <div>
+          <h3 class="text-lg font-semibold text-cyan-200 mb-4">Настройки соединения</h3>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-cyan-200 mb-2">Ваш Peer ID:</label>
+              <div class="px-4 py-3 bg-black/40 rounded-lg text-sm font-mono text-cyan-300" id="peer-id-display">Загрузка...</div>
+            </div>
+            <div>
+              <label class="block text-cyan-200 mb-2">Текущая комната:</label>
+              <div class="px-4 py-3 bg-black/40 rounded-lg text-sm font-mono text-cyan-300" id="current-room-display-settings">Загрузка...</div>
+            </div>
+            <button id="regenerate-peer-id" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm">
+              Сгенерировать новый Peer ID
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="mt-10 flex justify-end gap-6">
@@ -463,6 +637,32 @@
     if (loginInput) {
       loginInput.focus();
     }
+    
+    // Создание кнопки тестирования соединения
+    const testBtn = document.createElement('button');
+    testBtn.id = 'test-connection';
+    testBtn.className = 'fixed bottom-4 left-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-lg text-sm z-50 font-bold shadow-lg';
+    testBtn.textContent = '🔄 Тест WebRTC';
+    testBtn.onclick = function() {
+      if (window.testWebRTCConnection) {
+        window.testWebRTCConnection();
+      } else {
+        alert('Функция тестирования доступна после входа в систему');
+      }
+    };
+    document.body.appendChild(testBtn);
+    
+    // Создание блока информации о комнате
+    const roomInfo = document.createElement('div');
+    roomInfo.id = 'room-info';
+    roomInfo.className = 'fixed top-16 right-4 bg-black/70 backdrop-blur-sm border border-cyan-500/30 rounded-xl p-3 z-40 shadow-xl';
+    roomInfo.innerHTML = `
+      <div class="text-xs text-cyan-300 font-semibold mb-1">🌐 ИНФОРМАЦИЯ О КОМНАТЕ</div>
+      <div class="text-sm text-cyan-100"><span class="text-cyan-400">ID:</span> <span id="room-id-display" class="font-mono">-</span></div>
+      <div class="text-sm text-cyan-100 mt-1"><span class="text-cyan-400">Участники:</span> <span id="participants-count">0</span></div>
+      <div class="text-sm text-cyan-100 mt-1"><span class="text-cyan-400">WebRTC соединения:</span> <span id="webrtc-connections">0</span></div>
+    `;
+    document.body.appendChild(roomInfo);
   });
   
   // Глобальные функции для групп
@@ -487,6 +687,29 @@
   window.sendMessageToFriend = function(friendUsername) {
     if (window.sendMessageToFriendHandler) {
       window.sendMessageToFriendHandler(friendUsername);
+    }
+  };
+  
+  // Функция обновления информации о комнате
+  window.updateRoomInfo = function(roomId, participants, connections) {
+    document.getElementById('room-id-display').textContent = roomId || '-';
+    document.getElementById('participants-count').textContent = participants || 0;
+    document.getElementById('webrtc-connections').textContent = connections || 0;
+    document.getElementById('current-room-display').textContent = roomId || 'загрузка...';
+    document.getElementById('current-room-display-settings').textContent = roomId || 'загрузка...';
+  };
+  
+  // Функция обновления уровня звука
+  window.updateAudioLevel = function(level) {
+    const audioLevelBar = document.getElementById('audio-level-bar');
+    if (audioLevelBar) {
+      const width = Math.min(100, level * 100);
+      audioLevelBar.style.width = width + '%';
+      
+      const indicator = document.getElementById('audio-level-indicator');
+      if (indicator) {
+        indicator.classList.remove('hidden');
+      }
     }
   };
 </script>
