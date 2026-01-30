@@ -1,5 +1,5 @@
-const SOCKET_URL = window.location.origin;
-console.log('🔗 Подключение к:', SOCKET_URL);
+const SOCKET_URL = 'https://neura-voice-production.up.railway.app';
+console.log('🔗 Подключение к серверу:', SOCKET_URL);
 
 const socket = io(SOCKET_URL, {
   transports: ['websocket', 'polling'],
@@ -63,7 +63,7 @@ socket.emit = function(event, ...args) {
 
 // Логирование всех входящих событий
 socket.onAny((event, ...args) => {
-  if (event !== 'webrtc-ice-candidate') { // Пропускаем шумные события
+  if (event !== 'webrtc-ice-candidate') {
     console.log(`📥 [IN] Событие "${event}":`, args.length ? args[0] : 'без данных');
   }
 });
@@ -71,7 +71,6 @@ socket.onAny((event, ...args) => {
 function updateConnectionStatus(status, message = '') {
   const statusEl = document.getElementById('connection-status');
   if (!statusEl) {
-    // Создаем элемент, если его нет
     const statusDiv = document.createElement('div');
     statusDiv.id = 'connection-status';
     statusDiv.style.cssText = `
@@ -114,22 +113,18 @@ socket.on('auth-success', (userData) => {
   userName = userData.name || 'Пользователь';
   userAvatar = userData.avatar || '';
   
-  // Показываем основной интерфейс
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('register-screen').classList.add('hidden');
   document.getElementById('main-screen').classList.remove('hidden');
   
   updateUserProfile();
   
-  // Инициализируем голосовой чат
   setTimeout(() => initVoiceChat(), 100);
   
-  // Загружаем данные
   loadGroups();
   loadFriends();
   loadFriendRequests();
   
-  // Обновляем иконки
   if (typeof lucide !== 'undefined') {
     lucide.createIcons();
   }
@@ -147,7 +142,6 @@ socket.on('register-error', (error) => {
   showAuthError(error, true);
 });
 
-// WebRTC события
 socket.on('user-joined', async ({ peerId, name }) => {
   console.log('👤 Присоединился пользователь:', name, 'ID:', peerId);
   if (peerId !== myPeerId && myStream) {
@@ -180,7 +174,6 @@ socket.on('webrtc-ice-candidate', ({ from, candidate }) => {
   }
 });
 
-// Друзья и группы
 socket.on('friends-list', (list) => {
   console.log('👥 Получен список друзей:', list);
   friends = list;
@@ -268,25 +261,19 @@ socket.on('private-message', ({ from, text, timestamp }) => {
 // ==================== ИНИЦИАЛИЗАЦИЯ ====================
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🚀 DOM загружен');
-  
-  // Автоматическое подключение при загрузке
   updateConnectionStatus('connecting');
   
-  // Инициализация иконок
   if (typeof lucide !== 'undefined') {
     lucide.createIcons();
   }
   
-  // Глобальные функции
   window.joinGroupHandler = joinGroup;
   window.deleteGroupHandler = deleteGroup;
   window.inviteFriendToCallHandler = inviteFriendToCall;
   window.sendMessageToFriendHandler = sendMessageToFriend;
   
-  // Инициализация обработчиков
   initAllEventListeners();
   
-  // Проверяем наличие тестовых данных
   console.log('📋 Тестовые логины:', [
     { username: 'test', password: '123' },
     { username: 'test1', password: '123' },
@@ -296,7 +283,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ==================== ОБРАБОТЧИКИ СОБЫТИЙ ====================
 function initAllEventListeners() {
-  // 1. Вход и регистрация
   document.getElementById('to-register-btn')?.addEventListener('click', () => {
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('register-screen').classList.remove('hidden');
@@ -312,7 +298,6 @@ function initAllEventListeners() {
   document.getElementById('register-btn')?.addEventListener('click', handleRegister);
   document.getElementById('login-btn')?.addEventListener('click', handleLogin);
   
-  // Автовход по Enter
   ['login-username', 'login-password', 'register-name', 'register-username', 'register-password'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
@@ -328,7 +313,6 @@ function initAllEventListeners() {
     }
   });
   
-  // 2. Основные кнопки управления
   document.getElementById('logout-btn')?.addEventListener('click', () => {
     if (confirm('Выйти из аккаунта?')) {
       location.reload();
@@ -344,7 +328,6 @@ function initAllEventListeners() {
   document.getElementById('create-group-btn')?.addEventListener('click', createGroup);
   document.getElementById('leave-group-btn')?.addEventListener('click', leaveGroup);
   
-  // 3. Чат
   document.getElementById('send-btn')?.addEventListener('click', sendMessage);
   document.getElementById('emoji-btn')?.addEventListener('click', toggleEmojiPicker);
   
@@ -358,12 +341,10 @@ function initAllEventListeners() {
     });
   }
   
-  // 4. Загрузка файлов
   document.getElementById('media-upload')?.addEventListener('change', handleMediaUpload);
   document.getElementById('avatar-upload')?.addEventListener('change', handleAvatarUpload);
   document.getElementById('remove-avatar')?.addEventListener('click', removeAvatar);
   
-  // 5. Модальные окна
   document.getElementById('close-settings')?.addEventListener('click', () => hideModal('settings-modal'));
   document.getElementById('cancel-settings')?.addEventListener('click', () => hideModal('settings-modal'));
   document.getElementById('close-add-friend')?.addEventListener('click', () => hideModal('add-friend-modal'));
@@ -371,12 +352,10 @@ function initAllEventListeners() {
   document.getElementById('send-friend-request')?.addEventListener('click', sendFriendRequest);
   document.getElementById('save-settings')?.addEventListener('click', saveSettings);
   
-  // 6. Аудио фильтры
   document.getElementById('echo-cancellation')?.addEventListener('change', updateAudioFilters);
   document.getElementById('noise-suppression')?.addEventListener('change', updateAudioFilters);
   document.getElementById('auto-gain-control')?.addEventListener('change', updateAudioFilters);
   
-  // 7. Профиль
   document.getElementById('profile-avatar')?.addEventListener('input', updateAvatarPreviewFromUrl);
 }
 
@@ -405,7 +384,6 @@ function handleRegister() {
   
   socket.emit('register', { name, username, password });
   
-  // Таймаут
   setTimeout(() => {
     if (btn.disabled) {
       btn.textContent = originalText;
@@ -433,7 +411,6 @@ function handleLogin() {
   
   socket.emit('login', { username, password });
   
-  // Таймаут
   setTimeout(() => {
     if (btn.disabled) {
       btn.textContent = originalText;
@@ -455,7 +432,6 @@ function showAuthError(message, isRegister = false) {
     element.textContent = message;
     element.style.display = 'block';
     
-    // Включаем кнопки обратно
     if (isRegister) {
       document.getElementById('register-btn').disabled = false;
       document.getElementById('register-btn').textContent = 'Создать аккаунт';
@@ -486,7 +462,6 @@ async function initVoiceChat() {
     
     console.log('✅ Аудио поток получен');
     
-    // Подключаемся к комнате
     socket.emit('join-room', { 
       room: currentRoom, 
       peerId: myPeerId,
@@ -498,7 +473,6 @@ async function initVoiceChat() {
   } catch (error) {
     console.error('❌ Ошибка микрофона:', error);
     
-    // Все равно подключаемся к комнате, но без потока
     socket.emit('join-room', { 
       room: currentRoom, 
       peerId: myPeerId,
@@ -516,7 +490,6 @@ async function createPeerConnection(peerId, name, isInitiator = false) {
   const pc = new RTCPeerConnection(PC_CONFIG);
   connections[peerId] = pc;
   
-  // Добавляем наши треки
   if (myStream) {
     myStream.getTracks().forEach(track => {
       pc.addTrack(track, myStream);
@@ -637,7 +610,6 @@ function addParticipant(id, name, stream, isMe = false) {
   
   participantsDiv.appendChild(card);
   
-  // Ограничиваем количество участников на экране
   const children = participantsDiv.children;
   if (children.length > 10) {
     participantsDiv.removeChild(children[0]);
@@ -690,7 +662,6 @@ function toggleMicrophone() {
       }
     }
     
-    // Обновляем статус на нашей карточке
     const myCard = document.querySelector(`[data-peer-id="${myPeerId}"]`);
     if (myCard) {
       const statusEl = myCard.querySelector('.text-sm');
@@ -1160,7 +1131,6 @@ function handleMediaUpload(e) {
   };
   reader.readAsDataURL(file);
   
-  // Сбросить input
   e.target.value = '';
 }
 
@@ -1176,7 +1146,6 @@ function joinGroup(groupId) {
   document.getElementById('chat-title').textContent = `Группа: ${group.name}`;
   document.getElementById('leave-group-btn').classList.remove('hidden');
   
-  // Очищаем чат
   const chatMessages = document.getElementById('chat-messages');
   if (chatMessages) {
     chatMessages.innerHTML = '<div class="text-cyan-500 text-center py-4">Загрузка истории чата...</div>';
@@ -1218,13 +1187,11 @@ function leaveGroup() {
     document.getElementById('chat-title').textContent = 'Чат';
     document.getElementById('leave-group-btn').classList.add('hidden');
     
-    // Очищаем чат
     const chatMessages = document.getElementById('chat-messages');
     if (chatMessages) {
       chatMessages.innerHTML = '<div class="text-cyan-500 text-center py-4">Чат комнаты</div>';
     }
     
-    // Возвращаемся в основную комнату
     socket.emit('join-room', { 
       room: currentRoom, 
       peerId: myPeerId,

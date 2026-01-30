@@ -3,10 +3,17 @@ const http = require('http');
 const socketIo = require('socket.io');
 const sqlite3 = require('sqlite3').verbose();
 const crypto = require('crypto');
-const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
+
+// CORS для всех запросов
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
 
 // Настройки CORS для Socket.io
 const io = socketIo(server, {
@@ -17,8 +24,7 @@ const io = socketIo(server, {
   },
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
-  pingInterval: 25000,
-  cookie: false
+  pingInterval: 25000
 });
 
 // База данных SQLite в памяти
@@ -124,8 +130,8 @@ function initDatabase() {
 initDatabase();
 
 // Хранилище для активных пользователей
-const activeUsers = new Map(); // username -> socket.id
-const userSockets = new Map(); // socket.id -> {username, ...}
+const activeUsers = new Map();
+const userSockets = new Map();
 
 // Socket.io события
 io.on('connection', (socket) => {
@@ -203,7 +209,6 @@ io.on('connection', (socket) => {
           return socket.emit('auth-error', 'Неверный логин или пароль');
         }
         
-        // Сохраняем информацию о пользователе
         socket.username = username;
         socket.userData = row;
         activeUsers.set(username, socket.id);
@@ -215,19 +220,13 @@ io.on('connection', (socket) => {
         
         console.log('✅ Пользователь вошел:', username);
         
-        // Отправляем успешный ответ
         socket.emit('auth-success', {
           name: row.name,
           avatar: row.avatar || ''
         });
         
-        // Отправляем список друзей
         sendFriendsList(socket, username);
-        
-        // Отправляем список групп
         sendUserGroups(socket, username);
-        
-        // Отправляем запросы дружбы
         sendFriendRequests(socket, username);
       }
     );
@@ -275,12 +274,10 @@ io.on('connection', (socket) => {
     socket.peerId = peerId;
     socket.roomName = displayName;
     
-    // Получаем список текущих участников комнаты
     const roomSockets = io.sockets.adapter.rooms.get(room);
     if (roomSockets) {
       console.log(`👥 В комнате ${room} сейчас:`, Array.from(roomSockets).length, 'участников');
       
-      // Отправляем новому пользователю список уже подключенных участников
       roomSockets.forEach(socketId => {
         if (socketId !== socket.id) {
           const otherSocket = io.sockets.sockets.get(socketId);
@@ -295,7 +292,6 @@ io.on('connection', (socket) => {
       });
     }
     
-    // Уведомляем других в комнате о новом участнике
     console.log(`📢 Уведомляем комнату ${room} о новом участнике ${displayName}`);
     socket.to(room).emit('user-joined', {
       peerId,
@@ -389,7 +385,6 @@ io.on('connection', (socket) => {
             members: allMembers
           });
           
-          // Обновляем список групп для всех участников
           allMembers.forEach(member => {
             const memberSocketId = activeUsers.get(member);
             if (memberSocketId) {
@@ -424,13 +419,11 @@ io.on('connection', (socket) => {
     socket.join(`group_${groupId}`);
     socket.currentGroup = groupId;
     
-    // Проверяем, является ли пользователь участником группы
     db.get(
       'SELECT * FROM group_members WHERE group_id = ? AND username = ?',
       [groupId, socket.username],
       (err, row) => {
         if (!row && socket.username) {
-          // Если не участник, добавляем
           db.run(
             'INSERT OR IGNORE INTO group_members (group_id, username) VALUES (?, ?)',
             [groupId, socket.username]
@@ -439,7 +432,6 @@ io.on('connection', (socket) => {
       }
     );
     
-    // Загружаем историю группы
     db.all(
       'SELECT username as name, message, timestamp FROM group_messages WHERE group_id = ? ORDER BY timestamp ASC LIMIT 100',
       [groupId],
@@ -450,7 +442,6 @@ io.on('connection', (socket) => {
       }
     );
     
-    // Уведомляем других участников
     socket.to(`group_${groupId}`).emit('user-joined-group', {
       userId,
       name: name || socket.userData?.name || 'Участник',
@@ -497,7 +488,6 @@ io.on('connection', (socket) => {
         return socket.emit('friend-error', 'Пользователь не найден');
       }
       
-      // Проверяем, не существует ли уже дружба или запрос
       db.get(
         `SELECT * FROM friends WHERE 
          ((user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?))`,
@@ -708,14 +698,12 @@ io.on('connection', (socket) => {
     
     userSockets.delete(socket.id);
     
-    // Уведомляем о выходе из комнаты
     if (socket.currentRoom && socket.peerId) {
       socket.to(socket.currentRoom).emit('user-left', {
         peerId: socket.peerId
       });
     }
     
-    // Статистика
     console.log(`📊 Активные пользователи: ${activeUsers.size}`);
     console.log(`📊 Открытых соединений: ${userSockets.size}`);
   });
@@ -839,10 +827,9 @@ app.get('/info', (req, res) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`🌐 HTTP: http://localhost:${PORT}`);
-  console.log(`🌐 WebSocket: ws://localhost:${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/health`);
-  console.log(`📊 Server info: http://localhost:${PORT}/info`);
+  console.log(`🌐 HTTP: https://neura-voice-production.up.railway.app`);
+  console.log(`📊 Health check: https://neura-voice-production.up.railway.app/health`);
+  console.log(`📊 Server info: https://neura-voice-production.up.railway.app/info`);
   console.log(`\n📋 Тестовые пользователи:`);
   console.log(`   👤 Логин: test / Пароль: 123`);
   console.log(`   👤 Логин: test1 / Пароль: 123`);
