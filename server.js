@@ -8,14 +8,18 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 
-// Настройки CORS для Socket.io
+// В настройках CORS для Socket.io:
 const io = socketIo(server, {
   cors: {
-    origin: "*",
+    origin: function (origin, callback) {
+      // Разрешаем все origins для Railway
+      callback(null, true);
+    },
     methods: ["GET", "POST"],
     credentials: true
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000
 });
 
 // База данных
