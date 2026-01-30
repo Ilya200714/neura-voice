@@ -1,127 +1,302 @@
-const SOCKET_URL = 'https://neura-voice-production.up.railway.app';
+// Используем текущий домен для Socket.io
+const SOCKET_URL = window.location.origin;
 
-const socket = io(SOCKET_URL);
+const socket = io(SOCKET_URL, {
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
+});
+
 let peer = null;
-
 let myStream, myVideoStream;
 let myPeerId, currentRoom = 'default';
 let peers = {};
 let micOn = true, cameraOn = false;
-let userName = 'Ты';
+let userName = 'Гость';
 let userAvatar = '';
 let currentGroup = null;
 let groups = [];
 let friends = [];
 let friendRequests = [];
-let audioFilters = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true
-};
+
+// Проверка подключения
+socket.on('connect', () => {
+  console.log('✅ Подключено к серверу Socket.io');
+});
+
+socket.on('connect_error', (error) => {
+  console.error('❌ Ошибка подключения:', error);
+  alert('Не удалось подключиться к серверу. Попробуйте обновить страницу.');
+});
 
 // Инициализация при загрузке
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM загружен');
   initEventListeners();
-  lucide.createIcons();
   
-  // Экспортируем функции для глобального использования
-  window.joinGroupHandler = joinGroup;
-  window.deleteGroupHandler = deleteGroup;
-  window.inviteFriendToCallHandler = inviteFriendToCall;
-  window.sendMessageToFriendHandler = sendMessageToFriend;
-});
-
-// Инициализация всех обработчиков событий
-function initEventListeners() {
-  // ... (все обработчики остаются такими же как в предыдущем коде)
-  // Просто обновим обработчики для запросов дружбы
-}
-
-// Обработчики Socket.io - ОБНОВЛЕННЫЕ
-socket.on('auth-success', async (userData) => {
-  console.log('Вход успешен:', userData);
-  
-  userName = userData.name;
-  userAvatar = userData.avatar || '';
-  
-  // Показываем основной интерфейс
-  document.getElementById('login-screen').classList.add('hidden');
-  document.getElementById('register-screen').classList.add('hidden');
-  document.getElementById('main-screen').classList.remove('hidden');
-  
-  // Обновляем профиль
-  updateUserProfile();
-  
-  // Инициализируем голосовой чат
-  await initVoiceChat();
-  
-  // Загружаем группы
-  loadGroups();
-  
-  // Загружаем друзей
-  loadFriends();
-  
-  // Загружаем запросы дружбы
-  loadFriendRequests();
-  
-  // Загружаем историю сообщений комнаты
-  loadRoomHistory();
-  
-  // Обновляем иконки
-  lucide.createIcons();
-});
-
-// История сообщений комнаты
-socket.on('room-history', (messages) => {
-  const chatMessages = document.getElementById('chat-messages');
-  if (!chatMessages) return;
-  
-  // Очищаем только если не в группе
-  if (!currentGroup) {
-    chatMessages.innerHTML = '';
-    messages.forEach(msg => {
-      addMessage(msg.name, msg.message, msg.name === userName, false);
-    });
+  // Инициализируем иконки
+  if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
   }
 });
 
-// Загружаем историю комнаты
-function loadRoomHistory() {
-  socket.emit('get-room-history');
+// Инициализация обработчиков событий
+function initEventListeners() {
+  console.log('Инициализация обработчиков...');
+  
+  // Переключение экранов
+  const toRegisterBtn = document.getElementById('to-register-btn');
+  if (toRegisterBtn) {
+    toRegisterBtn.onclick = () => {
+      document.getElementById('login-screen').classList.add('hidden');
+      document.getElementById('register-screen').classList.remove('hidden');
+    };
+  }
+
+  const backToLoginBtn = document.getElementById('back-to-login-btn');
+  if (backToLoginBtn) {
+    backToLoginBtn.onclick = () => {
+      document.getElementById('register-screen').classList.add('hidden');
+      document.getElementById('login-screen').classList.remove('hidden');
+    };
+  }
+
+  // Регистрация - ПРОСТАЯ ВЕРСИЯ
+  const registerBtn = document.getElementById('register-btn');
+  if (registerBtn) {
+    registerBtn.onclick = () => {
+      console.log('Нажата кнопка регистрации');
+      const name = document.getElementById('register-name')?.value.trim();
+      const username = document.getElementById('register-username')?.value.trim();
+      const password = document.getElementById('register-password')?.value.trim();
+      
+      console.log('Данные:', { name, username, password });
+      
+      if (!name || !username || !password) {
+        const errorElem = document.getElementById('register-error');
+        if (errorElem) errorElem.textContent = 'Заполните все поля';
+        return;
+      }
+      
+      // Очищаем ошибку
+      const errorElem = document.getElementById('register-error');
+      if (errorElem) errorElem.textContent = '';
+      
+      // Отправляем запрос
+      socket.emit('register', { name, username, password });
+    };
+  }
+
+  // Вход - ПРОСТАЯ ВЕРСИЯ
+  const loginBtn = document.getElementById('login-btn');
+  if (loginBtn) {
+    loginBtn.onclick = () => {
+      console.log('Нажата кнопка входа');
+      const username = document.getElementById('login-username')?.value.trim();
+      const password = document.getElementById('login-password')?.value.trim();
+      
+      console.log('Данные входа:', { username, password });
+      
+      if (!username || !password) {
+        const errorElem = document.getElementById('auth-error');
+        if (errorElem) errorElem.textContent = 'Заполните все поля';
+        return;
+      }
+      
+      // Очищаем ошибку
+      const errorElem = document.getElementById('auth-error');
+      if (errorElem) errorElem.textContent = '';
+      
+      // Для тестирования можно использовать test/123
+      if (username === 'test' && password === '123') {
+        console.log('Используется тестовый аккаунт');
+      }
+      
+      // Отправляем запрос
+      socket.emit('login', { username, password });
+    };
+  }
+
+  // Остальные обработчики...
+  // ... (добавьте остальные обработчики из предыдущего кода)
+
+  // Обработчики ошибок и успеха
+  socket.on('auth-error', (error) => {
+    console.log('Ошибка аутентификации:', error);
+    
+    // Показываем ошибку в нужном месте
+    const loginError = document.getElementById('auth-error');
+    const registerError = document.getElementById('register-error');
+    
+    if (loginError && document.getElementById('login-screen').classList.contains('hidden') === false) {
+      loginError.textContent = error;
+    }
+    
+    if (registerError && document.getElementById('register-screen').classList.contains('hidden') === false) {
+      registerError.textContent = error;
+    }
+    
+    // Также показываем alert для отладки
+    alert('Ошибка: ' + error);
+  });
+
+  socket.on('auth-success', async (userData) => {
+    console.log('Успешная аутентификация:', userData);
+    
+    userName = userData.name;
+    userAvatar = userData.avatar || '';
+    
+    // Скрываем экраны входа/регистрации
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('register-screen').classList.add('hidden');
+    
+    // Показываем основной интерфейс
+    const mainScreen = document.getElementById('main-screen');
+    if (mainScreen) {
+      mainScreen.classList.remove('hidden');
+    }
+    
+    // Обновляем профиль
+    updateUserProfile();
+    
+    // Инициализируем голосовой чат
+    await initVoiceChat();
+    
+    // Загружаем группы и друзей
+    loadGroups();
+    loadFriends();
+    loadFriendRequests();
+    
+    // Обновляем иконки
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+    
+    alert('✅ Вход выполнен успешно!');
+  });
+
+  // Обработчики для других событий...
+  // ... (добавьте остальные обработчики из предыдущего кода)
 }
 
-// Запросы дружбы - ОБНОВЛЕННЫЕ обработчики
-socket.on('friend-request', ({ from, to }) => {
-  console.log('Получен запрос дружбы от:', from);
+// Функция обновления профиля
+function updateUserProfile() {
+  const userNameDisplay = document.getElementById('user-name');
+  const userInitial = document.getElementById('user-initial');
   
-  // Показываем уведомление
-  showFriendRequestNotification(from);
+  if (userNameDisplay) userNameDisplay.textContent = userName;
+  if (userInitial) userInitial.textContent = userName.slice(0, 2).toUpperCase();
   
-  // Обновляем список запросов
-  loadFriendRequests();
-});
+  // Обновляем аватар если есть
+  const avatarContainer = document.getElementById('user-avatar-container');
+  if (avatarContainer && userAvatar) {
+    const img = avatarContainer.querySelector('img');
+    const span = avatarContainer.querySelector('span');
+    
+    if (img) {
+      img.src = userAvatar;
+      img.classList.remove('hidden');
+    }
+    
+    if (span) {
+      span.classList.add('hidden');
+    }
+  }
+}
 
-socket.on('friend-requests-list', (requests) => {
-  friendRequests = requests;
-  updateFriendRequestsList();
-});
+// Голосовой чат
+async function initVoiceChat() {
+  try {
+    myStream = await navigator.mediaDevices.getUserMedia({ 
+      audio: true,
+      video: false 
+    });
+    
+    peer = new Peer();
+    
+    peer.on('open', (id) => {
+      myPeerId = id;
+      console.log('Peer ID:', id);
+      
+      socket.emit('join-room', { 
+        room: currentRoom, 
+        peerId: id,
+        name: userName 
+      });
+      
+      addParticipant(id, userName, myStream, true);
+    });
+    
+    peer.on('call', (call) => {
+      call.answer(myStream);
+      call.on('stream', (remoteStream) => {
+        addParticipant(call.peer, 'Участник', remoteStream, false);
+      });
+    });
+    
+    socket.on('user-joined', ({ peerId, name }) => {
+      if (peerId !== myPeerId && peer) {
+        const call = peer.call(peerId, myStream);
+        call.on('stream', (remoteStream) => {
+          addParticipant(peerId, name, remoteStream, false);
+        });
+      }
+    });
+    
+  } catch (error) {
+    console.error('Ошибка голосового чата:', error);
+    addParticipant('local', userName, null, true);
+  }
+}
 
-socket.on('friend-request-sent', ({ to }) => {
-  alert(`✅ Запрос дружбы отправлен пользователю ${to}`);
-});
+// Добавление участника
+function addParticipant(id, name, stream, isMe = false) {
+  const participantsDiv = document.getElementById('participants');
+  if (!participantsDiv) return;
+  
+  const card = document.createElement('div');
+  card.dataset.peerId = id;
+  card.className = `glass rounded-3xl p-6 flex flex-col items-center text-center neon ${isMe ? 'speaking' : ''}`;
+  
+  card.innerHTML = `
+    <div class="w-20 h-20 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-4xl font-bold text-white mb-4">
+      ${name.slice(0,2).toUpperCase()}
+    </div>
+    <div class="text-xl font-semibold text-cyan-100">${name}${isMe ? ' (ты)' : ''}</div>
+    <div class="text-sm text-cyan-400 mt-1">${isMe ? '🎤 Говорит' : 'Участник'}</div>
+  `;
+  
+  if (stream) {
+    const audio = document.createElement('audio');
+    audio.autoplay = true;
+    audio.muted = isMe;
+    audio.srcObject = stream;
+    card.appendChild(audio);
+  }
+  
+  participantsDiv.appendChild(card);
+}
 
-socket.on('friend-request-accepted', ({ by }) => {
-  alert(`✅ ${by} принял(а) ваш запрос дружбы!`);
-  // Обновляем списки
-  loadFriends();
-});
+// Загрузка групп
+function loadGroups() {
+  socket.emit('get-groups');
+}
 
-socket.on('friend-request-rejected', ({ by }) => {
-  alert(`❌ ${by} отклонил(а) ваш запрос дружбы`);
-});
+// Загрузка друзей
+function loadFriends() {
+  socket.emit('get-friends');
+}
 
-socket.on('friend-error', (error) => {
-  alert(`Ошибка друзей: ${error}`);
+// Загрузка запросов дружбы
+function loadFriendRequests() {
+  socket.emit('get-friend-requests');
+}
+
+// Обработчики для групп
+socket.on('groups-list', (list) => {
+  groups = list;
+  updateGroupsList();
 });
 
 socket.on('friends-list', (list) => {
@@ -129,289 +304,24 @@ socket.on('friends-list', (list) => {
   updateFriendsList();
 });
 
-// Функция для обновления списка запросов дружбы - ИСПРАВЛЕННАЯ
-function updateFriendRequestsList() {
-  const container = document.getElementById('friend-requests-list');
-  const countBadge = document.getElementById('friend-requests-count');
-  
-  if (!container) return;
-  
-  container.innerHTML = '';
-  
-  if (friendRequests.length === 0) {
-    container.innerHTML = '<div class="text-center text-gray-400 py-4">Нет новых запросов</div>';
-    if (countBadge) {
-      countBadge.classList.add('hidden');
-    }
-    return;
-  }
-  
-  // Показываем счетчик
-  if (countBadge) {
-    countBadge.textContent = friendRequests.length;
-    countBadge.classList.remove('hidden');
-  }
-  
-  friendRequests.forEach(request => {
-    const fromUser = request.from_user;
-    const div = document.createElement('div');
-    div.className = 'flex items-center justify-between p-3 bg-black/40 rounded-xl hover:bg-black/60 mb-2';
-    div.innerHTML = `
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-white font-bold">
-          ${fromUser.slice(0,2).toUpperCase()}
-        </div>
-        <div>
-          <div class="font-medium text-cyan-100">${fromUser}</div>
-          <div class="text-xs text-cyan-400">Хочет добавить вас в друзья</div>
-        </div>
-      </div>
-      <div class="flex gap-2">
-        <button class="px-3 py-1 bg-green-600 hover:bg-green-500 rounded-lg text-sm accept-friend-request-btn" data-from="${fromUser}">
-          ✓ Принять
-        </button>
-        <button class="px-3 py-1 bg-red-600 hover:bg-red-500 rounded-lg text-sm reject-friend-request-btn" data-from="${fromUser}">
-          ✕ Отклонить
-        </button>
-      </div>
-    `;
-    
-    container.appendChild(div);
-    
-    // Добавляем обработчики для кнопок
-    div.querySelector('.accept-friend-request-btn').onclick = () => {
-      acceptFriendRequest(fromUser);
-    };
-    
-    div.querySelector('.reject-friend-request-btn').onclick = () => {
-      rejectFriendRequest(fromUser);
-    };
-  });
-}
+socket.on('friend-requests-list', (requests) => {
+  friendRequests = requests;
+  updateFriendRequestsList();
+});
 
-// Функция принятия запроса дружбы - ИСПРАВЛЕННАЯ
-function acceptFriendRequest(fromUser) {
-  socket.emit('accept-friend-request', { 
-    from: fromUser, 
-    to: userName 
-  });
-  
-  // Обновляем списки
-  setTimeout(() => {
-    loadFriends();
-    loadFriendRequests();
-  }, 500);
-}
+// Остальные функции...
+// ... (добавьте остальные функции из предыдущего кода)
 
-// Функция отклонения запроса дружбы - ИСПРАВЛЕННАЯ
-function rejectFriendRequest(fromUser) {
-  if (confirm(`Отклонить запрос дружбы от ${fromUser}?`)) {
-    socket.emit('reject-friend-request', { 
-      from: fromUser, 
-      to: userName 
-    });
-    
-    // Обновляем список запросов
-    setTimeout(() => {
-      loadFriendRequests();
-    }, 500);
-  }
-}
+// Для тестирования: добавьте эту функцию в консоль браузера
+window.testLogin = function() {
+  document.getElementById('login-username').value = 'test';
+  document.getElementById('login-password').value = '123';
+  document.getElementById('login-btn').click();
+};
 
-// Функция отправки сообщения - ИСПРАВЛЕННАЯ для фото
-function sendMessage() {
-  const chatInput = document.getElementById('chat-input');
-  const text = chatInput?.value.trim();
-  
-  if (!text) {
-    if (chatInput) chatInput.focus();
-    return;
-  }
-
-  // Добавляем сообщение сразу в интерфейс (только один раз!)
-  addMessage(userName, text, true, false);
-  
-  // Отправляем на сервер
-  if (currentGroup) {
-    socket.emit('group-message', { 
-      groupId: currentGroup.id, 
-      name: userName, 
-      text 
-    });
-  } else {
-    socket.emit('chat-message', { 
-      room: currentRoom, 
-      name: userName, 
-      text 
-    });
-  }
-
-  // Очищаем поле ввода
-  if (chatInput) {
-    chatInput.value = '';
-    chatInput.focus();
-  }
-}
-
-// Функция добавления сообщения - ИСПРАВЛЕННАЯ для фото
-function addMessage(name, text, isSelf, isMedia = false) {
-  const chatMessages = document.getElementById('chat-messages');
-  if (!chatMessages) return;
-  
-  const msg = document.createElement('div');
-  
-  // Проверяем, содержит ли сообщение медиа (фото/видео)
-  const containsMedia = text.includes('<img') || text.includes('<video') || text.includes('media-preview');
-  
-  if (containsMedia || isMedia) {
-    // Для медиа сообщений - без обводки сообщения
-    msg.className = `mt-4 ${isSelf ? 'ml-auto' : ''}`;
-    msg.style.maxWidth = '75%';
-    
-    if (isSelf) {
-      msg.innerHTML = `
-        <div class="flex items-start gap-2 flex-row-reverse">
-          <div class="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-            ${name.slice(0,2).toUpperCase()}
-          </div>
-          <div class="text-right">
-            <div class="font-semibold text-sm text-cyan-300 mb-1">${name}</div>
-            <div class="bg-transparent">${text}</div>
-            <div class="text-xs text-cyan-400 mt-1">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-          </div>
-        </div>
-      `;
-    } else {
-      msg.innerHTML = `
-        <div class="flex items-start gap-2">
-          <div class="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-            ${name.slice(0,2).toUpperCase()}
-          </div>
-          <div>
-            <div class="font-semibold text-sm text-cyan-200 mb-1">${name}</div>
-            <div class="bg-transparent">${text}</div>
-            <div class="text-xs text-gray-400 mt-1">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-          </div>
-        </div>
-      `;
-    }
-  } else {
-    // Для обычных текстовых сообщений - с обводкой
-    msg.className = `message ${isSelf ? 'message-self' : 'message-other'}`;
-    msg.innerHTML = `
-      <div class="flex items-start gap-2">
-        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-600 to-blue-700 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-          ${name.slice(0,2).toUpperCase()}
-        </div>
-        <div>
-          <div class="font-semibold text-sm ${isSelf ? 'text-cyan-300' : 'text-cyan-200'}">${name}</div>
-          <div class="mt-1">${text}</div>
-          <div class="text-xs ${isSelf ? 'text-cyan-400' : 'text-gray-400'} mt-1">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-        </div>
-      </div>
-    `;
-  }
-  
-  chatMessages.appendChild(msg);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-// Функция обработки загрузки медиа - ИСПРАВЛЕННАЯ
-function handleMediaUpload(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  
-  // Проверяем размер файла (максимум 10MB)
-  if (file.size > 10 * 1024 * 1024) {
-    alert('Файл слишком большой. Максимальный размер: 10MB');
-    e.target.value = '';
-    return;
-  }
-  
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    const isImage = file.type.startsWith('image/');
-    const isVideo = file.type.startsWith('video/');
-    
-    let type = 'Файл';
-    if (isImage) type = 'Изображение';
-    if (isVideo) type = 'Видео';
-    
-    let mediaHTML = '';
-    if (isImage) {
-      mediaHTML = `
-        <div class="media-container">
-          <img src="${event.target.result}" class="media-content rounded-lg max-w-full" alt="${type}">
-          <div class="text-xs text-gray-400 mt-1">${file.name}</div>
-        </div>
-      `;
-    } else if (isVideo) {
-      mediaHTML = `
-        <div class="media-container">
-          <video src="${event.target.result}" class="media-content rounded-lg max-w-full" controls></video>
-          <div class="text-xs text-gray-400 mt-1">${file.name}</div>
-        </div>
-      `;
-    } else {
-      mediaHTML = `
-        <div class="media-container p-3 bg-black/30 rounded-lg">
-          <a href="${event.target.result}" download="${file.name}" class="text-cyan-300 hover:text-cyan-100">
-            📎 ${file.name}
-          </a>
-        </div>
-      `;
-    }
-    
-    const msg = `<div>${mediaHTML}</div>`;
-    
-    // Добавляем сообщение в интерфейс (как медиа, без обводки)
-    addMessage(userName, msg, true, true);
-    
-    // Отправляем на сервер
-    if (currentGroup) {
-      socket.emit('group-message', { 
-        groupId: currentGroup.id, 
-        name: userName, 
-        text: msg 
-      });
-    } else {
-      socket.emit('chat-message', { 
-        room: currentRoom, 
-        name: userName, 
-        text: msg 
-      });
-    }
-  };
-  reader.readAsDataURL(file);
-  
-  e.target.value = '';
-}
-
-// Остальные функции остаются такими же, как в предыдущем коде
-// ...
-
-// Добавляем стили для медиа в CSS
-const style = document.createElement('style');
-style.textContent = `
-  .media-container {
-    max-width: 300px;
-    margin-top: 4px;
-  }
-  
-  .media-content {
-    max-width: 100%;
-    max-height: 300px;
-    object-fit: contain;
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.3);
-  }
-  
-  .media-preview {
-    max-width: 100%;
-    border-radius: 8px;
-    margin-top: 4px;
-    background: transparent;
-    border: none;
-  }
-`;
-document.head.appendChild(style);
+window.testRegister = function() {
+  document.getElementById('register-name').value = 'Новый пользователь';
+  document.getElementById('register-username').value = 'user' + Date.now();
+  document.getElementById('register-password').value = '123';
+  document.getElementById('register-btn').click();
+};
