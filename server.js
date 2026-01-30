@@ -205,29 +205,29 @@ io.on('connection', (socket) => {
           // Добавьте эти обработчики в server.js после других socket.on:
 
 // WebRTC сигналы
-socket.on('webrtc-offer', ({ to, from, offer }) => {
-  console.log(`📤 Forwarding WebRTC offer from ${from} to ${to}`);
-  const recipientSocketId = activeUsers.get(to);
-  if (recipientSocketId) {
-    io.to(recipientSocketId).emit('webrtc-offer', { from, offer });
-  }
-});
+        socket.on('webrtc-offer', ({ to, from, offer }) => {
+          console.log(`📤 Forwarding WebRTC offer from ${from} to ${to}`);
+          const recipientSocketId = activeUsers.get(to);
+          if (recipientSocketId) {
+            io.to(recipientSocketId).emit('webrtc-offer', { from, offer });
+      }
+    });
 
-socket.on('webrtc-answer', ({ to, from, answer }) => {
-  console.log(`📤 Forwarding WebRTC answer from ${from} to ${to}`);
-  const recipientSocketId = activeUsers.get(to);
-  if (recipientSocketId) {
-    io.to(recipientSocketId).emit('webrtc-answer', { from, answer });
-  }
-});
+        socket.on('webrtc-answer', ({ to, from, answer }) => {
+          console.log(`📤 Forwarding WebRTC answer from ${from} to ${to}`);
+          const recipientSocketId = activeUsers.get(to);
+          if (recipientSocketId) {
+            io.to(recipientSocketId).emit('webrtc-answer', { from, answer });
+      }
+    });
 
-socket.on('webrtc-ice-candidate', ({ to, from, candidate }) => {
-  console.log(`❄️ Forwarding ICE candidate from ${from} to ${to}`);
-  const recipientSocketId = activeUsers.get(to);
-  if (recipientSocketId) {
-    io.to(recipientSocketId).emit('webrtc-ice-candidate', { from, candidate });
-  }
-});
+        socket.on('webrtc-ice-candidate', ({ to, from, candidate }) => {
+          console.log(`❄️ Forwarding ICE candidate from ${from} to ${to}`);
+          const recipientSocketId = activeUsers.get(to);
+          if (recipientSocketId) {
+            io.to(recipientSocketId).emit('webrtc-ice-candidate', { from, candidate });
+      }
+    });
 
   // Обновление профиля
   socket.on('update-profile', ({ name, avatar }) => {
