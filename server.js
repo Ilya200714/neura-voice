@@ -8,23 +8,20 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 
-// В настройках CORS для Socket.io:
+// Настройки CORS для Socket.io
 const io = socketIo(server, {
   cors: {
-    origin: function (origin, callback) {
-      // Разрешаем все origins для Railway
-      callback(null, true);
-    },
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true
   },
   transports: ['websocket', 'polling'],
-  pingTimeout: 60000
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 // База данных
-const db = new sqlite3.Database(':memory:'); // Используем память для простоты
-// Для production используйте: const db = new sqlite3.Database('neura-voice.db');
+const db = new sqlite3.Database(':memory:');
 
 // Инициализация базы данных
 function initDatabase() {
@@ -92,7 +89,7 @@ function initDatabase() {
     if (err) console.error('Error creating group_members table:', err);
   });
 
-  // Добавляем тестового пользователя для быстрой проверки
+  // Тестовый пользователь
   const testHash = crypto.createHash('sha256').update('123').digest('hex');
   db.run(
     'INSERT OR IGNORE INTO users (username, password_hash, name) VALUES (?, ?, ?)',
@@ -103,7 +100,6 @@ function initDatabase() {
   );
 }
 
-// Инициализируем базу данных
 initDatabase();
 
 // Хранилище для активных пользователей
@@ -121,10 +117,8 @@ io.on('connection', (socket) => {
       return socket.emit('auth-error', 'Заполните все поля');
     }
     
-    // Хэшируем пароль
     const hash = crypto.createHash('sha256').update(password).digest('hex');
     
-    // Проверяем существование пользователя
     db.get('SELECT * FROM users WHERE username = ?', [username], (err, row) => {
       if (err) {
         console.error('❌ Ошибка базы данных:', err);
@@ -135,7 +129,6 @@ io.on('connection', (socket) => {
         return socket.emit('auth-error', 'Пользователь уже существует');
       }
       
-      // Создаем пользователя
       db.run(
         'INSERT INTO users (username, password_hash, name) VALUES (?, ?, ?)',
         [username, hash, name],
@@ -202,32 +195,6 @@ io.on('connection', (socket) => {
       }
     );
   });
-          // Добавьте эти обработчики в server.js после других socket.on:
-
-// WebRTC сигналы
-        socket.on('webrtc-offer', ({ to, from, offer }) => {
-          console.log(`📤 Forwarding WebRTC offer from ${from} to ${to}`);
-          const recipientSocketId = activeUsers.get(to);
-          if (recipientSocketId) {
-            io.to(recipientSocketId).emit('webrtc-offer', { from, offer });
-      }
-    });
-
-        socket.on('webrtc-answer', ({ to, from, answer }) => {
-          console.log(`📤 Forwarding WebRTC answer from ${from} to ${to}`);
-          const recipientSocketId = activeUsers.get(to);
-          if (recipientSocketId) {
-            io.to(recipientSocketId).emit('webrtc-answer', { from, answer });
-      }
-    });
-
-        socket.on('webrtc-ice-candidate', ({ to, from, candidate }) => {
-          console.log(`❄️ Forwarding ICE candidate from ${from} to ${to}`);
-          const recipientSocketId = activeUsers.get(to);
-          if (recipientSocketId) {
-            io.to(recipientSocketId).emit('webrtc-ice-candidate', { from, candidate });
-      }
-    });
 
   // Обновление профиля
   socket.on('update-profile', ({ name, avatar }) => {
@@ -242,7 +209,6 @@ io.on('connection', (socket) => {
           return;
         }
         
-        // Обновляем локальные данные
         socket.userData.name = name;
         socket.userData.avatar = avatar;
         
@@ -251,50 +217,74 @@ io.on('connection', (socket) => {
     );
   });
 
-  // Присоединение к комнате
+  // Присоединение к комнате голосового чата
   socket.on('join-room', ({ room, peerId, name }) => {
-  if (!room || !peerId) return;
-  
-  console.log(`👤 ${name || socket.username} присоединяется к комнате ${room} с peerId ${peerId}`);
-  
-  socket.join(room);
-  socket.currentRoom = room;
-  socket.peerId = peerId;
-  socket.roomName = name || socket.userData?.name || 'Участник';
-  
-  // Получаем список текущих участников комнаты
-  const roomSockets = io.sockets.adapter.rooms.get(room);
-  if (roomSockets) {
-    console.log(`В комнате ${room} сейчас:`, Array.from(roomSockets));
+    if (!room || !peerId) return;
     
-    // Отправляем новому пользователю список уже подключенных участников
-    roomSockets.forEach(socketId => {
-      if (socketId !== socket.id) {
-        const otherSocket = io.sockets.sockets.get(socketId);
-        if (otherSocket && otherSocket.peerId && otherSocket.roomName) {
-          console.log(`Отправляем ${name} информацию о ${otherSocket.roomName}`);
-          socket.emit('user-joined', {
-            peerId: otherSocket.peerId,
-            name: otherSocket.roomName
-          });
+    console.log(`👤 ${name || socket.username} присоединяется к комнате ${room} с peerId ${peerId}`);
+    
+    socket.join(room);
+    socket.currentRoom = room;
+    socket.peerId = peerId;
+    socket.roomName = name || socket.userData?.name || 'Участник';
+    
+    // Получаем список текущих участников комнаты
+    const roomSockets = io.sockets.adapter.rooms.get(room);
+    if (roomSockets) {
+      console.log(`В комнате ${room} сейчас:`, Array.from(roomSockets));
+      
+      // Отправляем новому пользователю список уже подключенных участников
+      roomSockets.forEach(socketId => {
+        if (socketId !== socket.id) {
+          const otherSocket = io.sockets.sockets.get(socketId);
+          if (otherSocket && otherSocket.peerId && otherSocket.roomName) {
+            console.log(`Отправляем ${name} информацию о ${otherSocket.roomName}`);
+            socket.emit('user-joined', {
+              peerId: otherSocket.peerId,
+              name: otherSocket.roomName
+            });
+          }
         }
-      }
+      });
+    }
+    
+    // Уведомляем других в комнате о новом участнике
+    console.log(`Уведомляем комнату ${room} о новом участнике ${name}`);
+    socket.to(room).emit('user-joined', {
+      peerId,
+      name: socket.roomName
     });
-  }
-  
-  // Уведомляем других в комнате о новом участнике
-  console.log(`Уведомляем комнату ${room} о новом участнике ${name}`);
-  socket.to(room).emit('user-joined', {
-    peerId,
-    name: socket.roomName
   });
-});
+
+  // WebRTC сигналы
+  socket.on('webrtc-offer', ({ to, from, offer }) => {
+    console.log(`📤 Forwarding WebRTC offer from ${from} to ${to}`);
+    const recipientSocketId = activeUsers.get(to);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('webrtc-offer', { from, offer });
+    }
+  });
+
+  socket.on('webrtc-answer', ({ to, from, answer }) => {
+    console.log(`📤 Forwarding WebRTC answer from ${from} to ${to}`);
+    const recipientSocketId = activeUsers.get(to);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('webrtc-answer', { from, answer });
+    }
+  });
+
+  socket.on('webrtc-ice-candidate', ({ to, from, candidate }) => {
+    console.log(`❄️ Forwarding ICE candidate from ${from} to ${to}`);
+    const recipientSocketId = activeUsers.get(to);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('webrtc-ice-candidate', { from, candidate });
+    }
+  });
 
   // Сообщение в чате
   socket.on('chat-message', ({ room, name, text }) => {
     if (!room || !name || !text) return;
     
-    // Отправляем всем в комнате
     io.to(room).emit('chat-message', {
       name,
       text,
@@ -310,7 +300,6 @@ io.on('connection', (socket) => {
     const allMembers = [...new Set([...members, creator])];
     
     db.serialize(() => {
-      // Создаем группу
       db.run(
         'INSERT INTO groups (id, name, creator) VALUES (?, ?, ?)',
         [groupId, name, creator],
@@ -320,12 +309,10 @@ io.on('connection', (socket) => {
             return socket.emit('group-error', 'Ошибка создания группы');
           }
           
-          // Добавляем участников
           const stmt = db.prepare('INSERT INTO group_members (group_id, username) VALUES (?, ?)');
           allMembers.forEach(member => {
             stmt.run([groupId, member]);
             
-            // Уведомляем участников
             const memberSocketId = activeUsers.get(member);
             if (memberSocketId) {
               io.to(memberSocketId).emit('group-invite', {
@@ -337,7 +324,6 @@ io.on('connection', (socket) => {
           });
           stmt.finalize();
           
-          // Отправляем ответ создателю
           socket.emit('group-created', {
             id: groupId,
             name,
@@ -345,7 +331,6 @@ io.on('connection', (socket) => {
             members: allMembers
           });
           
-          // Обновляем списки групп для участников
           allMembers.forEach(member => {
             const memberSocketId = activeUsers.get(member);
             if (memberSocketId) {
@@ -396,7 +381,6 @@ io.on('connection', (socket) => {
   socket.on('group-message', ({ groupId, name, text }) => {
     if (!groupId || !name || !text) return;
     
-    // Сохраняем в базу
     db.run(
       'INSERT INTO group_messages (group_id, username, message) VALUES (?, ?, ?)',
       [groupId, name, text],
@@ -405,7 +389,6 @@ io.on('connection', (socket) => {
       }
     );
     
-    // Отправляем участникам группы
     io.to(`group_${groupId}`).emit('group-message', {
       groupId,
       name,
@@ -422,13 +405,11 @@ io.on('connection', (socket) => {
       return socket.emit('friend-error', 'Нельзя добавить себя в друзья');
     }
     
-    // Проверяем существование пользователя
     db.get('SELECT username FROM users WHERE username = ?', [to], (err, row) => {
       if (err || !row) {
         return socket.emit('friend-error', 'Пользователь не найден');
       }
       
-      // Проверяем существующий запрос
       db.get(
         'SELECT * FROM friends WHERE user1 = ? AND user2 = ? AND status = ?',
         [from, to, 'pending'],
@@ -437,7 +418,6 @@ io.on('connection', (socket) => {
             return socket.emit('friend-error', 'Запрос уже отправлен');
           }
           
-          // Создаем запрос
           db.run(
             'INSERT INTO friends (user1, user2, requested_by, status) VALUES (?, ?, ?, ?)',
             [from, to, from, 'pending'],
@@ -447,7 +427,6 @@ io.on('connection', (socket) => {
                 return socket.emit('friend-error', 'Ошибка отправки');
               }
               
-              // Уведомляем получателя
               const recipientSocketId = activeUsers.get(to);
               if (recipientSocketId) {
                 io.to(recipientSocketId).emit('friend-request', { from, to });
@@ -455,7 +434,6 @@ io.on('connection', (socket) => {
               
               socket.emit('friend-request-sent', { to });
               
-              // Обновляем список запросов получателя
               if (recipientSocketId) {
                 const recipientSocket = io.sockets.sockets.get(recipientSocketId);
                 if (recipientSocket) {
@@ -480,7 +458,6 @@ io.on('connection', (socket) => {
           return;
         }
         
-        // Обновляем списки обоих пользователей
         [from, to].forEach(username => {
           const socketId = activeUsers.get(username);
           if (socketId) {
@@ -506,7 +483,6 @@ io.on('connection', (socket) => {
           return;
         }
         
-        // Обновляем список запросов получателя
         const receiverSocketId = activeUsers.get(to);
         if (receiverSocketId) {
           const receiverSocket = io.sockets.sockets.get(receiverSocketId);
@@ -514,6 +490,32 @@ io.on('connection', (socket) => {
             sendFriendRequests(receiverSocket, to);
           }
         }
+      }
+    );
+  });
+
+  // Удаление друга
+  socket.on('remove-friend', ({ user1, user2 }) => {
+    if (!socket.username) return;
+    
+    db.run(
+      "DELETE FROM friends WHERE ((user1 = ? AND user2 = ?) OR (user1 = ? AND user2 = ?)) AND status = 'accepted'",
+      [user1, user2, user2, user1],
+      (err) => {
+        if (err) {
+          console.error('Ошибка удаления друга:', err);
+          return;
+        }
+        
+        [user1, user2].forEach(username => {
+          const socketId = activeUsers.get(username);
+          if (socketId) {
+            const userSocket = io.sockets.sockets.get(socketId);
+            if (userSocket) {
+              sendFriendsList(userSocket, username);
+            }
+          }
+        });
       }
     );
   });
@@ -528,6 +530,57 @@ io.on('connection', (socket) => {
   socket.on('get-friend-requests', () => {
     if (!socket.username) return;
     sendFriendRequests(socket, socket.username);
+  });
+
+  // Личные сообщения
+  socket.on('private-message', ({ to, from, text }) => {
+    if (!to || !from || !text) return;
+    
+    const recipientSocketId = activeUsers.get(to);
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('private-message', {
+        from,
+        text,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    socket.emit('private-message-sent', { to, text });
+  });
+
+  // Удаление группы
+  socket.on('delete-group', ({ groupId }) => {
+    if (!groupId) return;
+    
+    db.serialize(() => {
+      db.run('DELETE FROM group_members WHERE group_id = ?', [groupId]);
+      db.run('DELETE FROM group_messages WHERE group_id = ?', [groupId]);
+      db.run('DELETE FROM groups WHERE id = ?', [groupId], (err) => {
+        if (err) {
+          console.error('Ошибка удаления группы:', err);
+          return;
+        }
+        
+        io.emit('group-deleted', groupId);
+      });
+    });
+  });
+
+  // Выход из группы
+  socket.on('leave-group', ({ groupId, userId }) => {
+    if (!groupId) return;
+    
+    db.run(
+      'DELETE FROM group_members WHERE group_id = ? AND username = ?',
+      [groupId, socket.username],
+      (err) => {
+        if (err) {
+          console.error('Ошибка выхода из группы:', err);
+        }
+      }
+    );
+    
+    socket.leave(`group_${groupId}`);
   });
 
   // Отключение
@@ -548,30 +601,30 @@ io.on('connection', (socket) => {
 
   // Вспомогательные функции
   function sendFriendsList(socket, username) {
-  db.all(
-    `SELECT DISTINCT
-      CASE 
-        WHEN user1 = ? THEN user2 
-        WHEN user2 = ? THEN user1 
-      END as friend_username
-     FROM friends 
-     WHERE (user1 = ? OR user2 = ?) 
-       AND status = 'accepted'
-       AND friend_username IS NOT NULL
-     ORDER BY friend_username`,
-    [username, username, username, username],
-    (err, rows) => {
-      if (err) {
-        console.error('Ошибка получения друзей:', err);
-        return;
+    db.all(
+      `SELECT DISTINCT
+        CASE 
+          WHEN user1 = ? THEN user2 
+          WHEN user2 = ? THEN user1 
+        END as friend_username
+       FROM friends 
+       WHERE (user1 = ? OR user2 = ?) 
+         AND status = 'accepted'
+         AND friend_username IS NOT NULL
+       ORDER BY friend_username`,
+      [username, username, username, username],
+      (err, rows) => {
+        if (err) {
+          console.error('Ошибка получения друзей:', err);
+          return;
+        }
+        
+        const friends = rows.map(row => row.friend_username);
+        console.log(`👥 Отправляем список друзей для ${username}:`, friends);
+        socket.emit('friends-list', friends);
       }
-      
-      const friends = rows.map(row => row.friend_username);
-      console.log(`👥 Отправляем список друзей для ${username}:`, friends);
-      socket.emit('friends-list', friends);
-    }
-  );
-}
+    );
+  }
 
   function sendFriendRequests(socket, username) {
     db.all(
@@ -602,7 +655,6 @@ io.on('connection', (socket) => {
           return;
         }
         
-        // Получаем участников для каждой группы
         const groupsWithMembers = rows.map(group => {
           return new Promise((resolve) => {
             db.all(
@@ -644,7 +696,7 @@ app.get('/health', (req, res) => {
 
 // Запуск сервера
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
   console.log(`🌐 Доступ по адресу: http://localhost:${PORT}`);
 });
