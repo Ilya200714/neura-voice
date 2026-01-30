@@ -1,11 +1,16 @@
-const SOCKET_URL = 'https://neura-voice-production.up.railway.app';
+const SOCKET_URL = window.location.origin;
 
-const socket = io(SOCKET_URL);
+const socket = io(SOCKET_URL, {
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: 10
+});
+
 let peer = null;
-
 let myStream, myVideoStream;
 let myPeerId, currentRoom = 'default';
 let peers = {};
+let webrtcConnections = {};
 let micOn = true, cameraOn = false;
 let userName = 'Ты';
 let userAvatar = '';
@@ -29,6 +34,22 @@ document.addEventListener('DOMContentLoaded', () => {
   window.deleteGroupHandler = deleteGroup;
   window.inviteFriendToCallHandler = inviteFriendToCall;
   window.sendMessageToFriendHandler = sendMessageToFriend;
+  
+  console.log('🚀 Neura Voice загружен');
+  console.log('🌐 URL сервера:', SOCKET_URL);
+});
+
+// Отладка соединения
+socket.on('connect', () => {
+  console.log('✅ Успешно подключились к серверу Socket.io');
+});
+
+socket.on('connect_error', (error) => {
+  console.error('❌ Ошибка подключения Socket.io:', error);
+});
+
+socket.on('disconnect', (reason) => {
+  console.warn('❌ Отключились от сервера:', reason);
 });
 
 // Инициализация всех обработчиков событий
@@ -256,7 +277,7 @@ socket.on('auth-error', (error) => {
 });
 
 socket.on('auth-success', async (userData) => {
-  console.log('Вход успешен:', userData);
+  console.log('✅ Вход успешен:', userData);
   
   userName = userData.name;
   userAvatar = userData.avatar || '';
@@ -294,7 +315,6 @@ socket.on('profile-updated', (data) => {
 
 socket.on('chat-message', ({ name, text }) => {
   if (!currentGroup) {
-    // Проверяем, не отправляли ли мы это сообщение сами
     const isMyMessage = (name === userName);
     if (!isMyMessage) {
       addMessage(name, text, false);
@@ -304,7 +324,6 @@ socket.on('chat-message', ({ name, text }) => {
 
 socket.on('group-message', ({ groupId, name, text }) => {
   if (currentGroup && currentGroup.id === groupId) {
-    // Проверяем, не отправляли ли мы это сообщение сами
     const isMyMessage = (name === userName);
     if (!isMyMessage) {
       addMessage(name, text, false);
@@ -351,9 +370,58 @@ socket.on('user-joined-group', ({ userId, name, groupId }) => {
   }
 });
 
+// WebRTC через Socket.io
+socket.on('user-joined', async ({ peerId, name }) => {
+  console.log('👤 Пользователь присоединился к звонку:', peerId, name);
+  
+  if (peerId !== myPeerId && myStream) {
+    try {
+      await createWebRTCOffer(peerId, name);
+    } catch (error) {
+      console.error('❌ Ошибка при создании WebRTC предложения:', error);
+    }
+  }
+});
+
+socket.on('webrtc-offer', async ({ from, offer }) => {
+  console.log('📥 Получено предложение WebRTC от', from);
+  
+  if (!myStream) {
+    console.warn('Нет потока для ответа');
+    return;
+  }
+  
+  try {
+    await createWebRTCAnswer(from, offer);
+  } catch (error) {
+    console.error('❌ Ошибка при обработке предложения:', error);
+  }
+});
+
+socket.on('webrtc-answer', async ({ from, answer }) => {
+  console.log('📥 Получен ответ WebRTC от', from);
+  
+  const pc = webrtcConnections[from];
+  if (pc) {
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    } catch (error) {
+      console.error('❌ Ошибка при установке удаленного описания:', error);
+    }
+  }
+});
+
+socket.on('webrtc-ice-candidate', ({ from, candidate }) => {
+  const pc = webrtcConnections[from];
+  if (pc && candidate) {
+    pc.addIceCandidate(new RTCIceCandidate(candidate))
+      .catch(err => console.error('Ошибка добавления ICE кандидата:', err));
+  }
+});
+
 // Запросы дружбы
 socket.on('friend-request', ({ from, to }) => {
-  console.log('Получен запрос дружбы от:', from);
+  console.log('🤝 Получен запрос дружбы от:', from);
   
   // Показываем уведомление
   showFriendRequestNotification(from);
@@ -384,31 +452,28 @@ socket.on('friends-list', (list) => {
   updateFriendsList();
 });
 
-socket.on('user-joined', ({ peerId, name }) => {
-  console.log('Пользователь присоединился:', peerId, name);
-  if (peerId !== myPeerId && peer) {
-    // Звоним новому пользователю
-    const call = peer.call(peerId, myStream);
-    
-    call.on('stream', (remoteStream) => {
-      console.log('Подключен к пользователю:', peerId);
-      addParticipant(peerId, name, remoteStream, false);
-    });
-    
-    call.on('error', (err) => {
-      console.error('Ошибка вызова:', err);
-    });
-  }
+// Личные сообщения
+socket.on('private-message', ({ from, text }) => {
+  alert(`💬 Личное сообщение от ${from}: ${text}`);
 });
 
-socket.on('user-left', ({ peerId }) => {
-  console.log('Пользователь вышел:', peerId);
-  removeParticipant(peerId);
-  
-  // Закрываем соединение
-  if (peers[peerId]) {
-    peers[peerId].close();
-    delete peers[peerId];
+socket.on('private-message-sent', ({ to, text }) => {
+  console.log(`✅ Сообщение отправлено ${to}: ${text}`);
+});
+
+// Ошибки
+socket.on('peer-error', (error) => {
+  console.error('Ошибка PeerJS:', error);
+});
+
+socket.on('group-error', (error) => {
+  alert(`Ошибка группы: ${error}`);
+});
+
+// Приглашение в группу
+socket.on('group-invite', ({ groupId, groupName, inviter }) => {
+  if (confirm(`${inviter} приглашает вас в группу "${groupName}"`)) {
+    joinGroup(groupId);
   }
 });
 
@@ -420,14 +485,12 @@ function updateUserProfile() {
   if (userNameDisplay) userNameDisplay.textContent = userName;
   if (userInitial) userInitial.textContent = userName.slice(0, 2).toUpperCase();
   
-  // Обновляем аватар в левой панели
   const avatarContainer = document.getElementById('user-avatar-container');
   if (avatarContainer) {
     const existingImg = avatarContainer.querySelector('img');
     const existingSpan = avatarContainer.querySelector('span');
     
     if (userAvatar) {
-      // Создаем или обновляем изображение
       if (existingImg) {
         existingImg.src = userAvatar;
         existingImg.classList.remove('hidden');
@@ -440,12 +503,10 @@ function updateUserProfile() {
         avatarContainer.appendChild(img);
       }
       
-      // Скрываем инициалы
       if (existingSpan) {
         existingSpan.classList.add('hidden');
       }
     } else {
-      // Показываем инициалы
       if (existingImg) {
         existingImg.classList.add('hidden');
       }
@@ -459,12 +520,10 @@ function updateUserProfile() {
 
 async function initVoiceChat() {
   try {
-    // Останавливаем старый поток, если есть
     if (myStream) {
       myStream.getTracks().forEach(track => track.stop());
     }
     
-    // Получаем новый поток с фильтрами
     myStream = await navigator.mediaDevices.getUserMedia({ 
       audio: {
         ...audioFilters,
@@ -474,52 +533,158 @@ async function initVoiceChat() {
       video: false 
     });
     
-    // Создаем Peer соединение
-    peer = new Peer({
-      host: '0.peerjs.com',
-      port: 443,
-      path: '/',
-      secure: true
-    });
+    console.log('🎤 Получен аудио поток:', myStream.getTracks().length, 'треков');
     
-    peer.on('open', (id) => {
-      myPeerId = id;
-      console.log('Мой Peer ID:', id);
+    // Пробуем PeerJS
+    try {
+      peer = new Peer({
+        host: '0.peerjs.com',
+        port: 443,
+        path: '/',
+        secure: true
+      });
       
-      // Присоединяемся к комнате
+      peer.on('open', (id) => {
+        myPeerId = id;
+        console.log('✅ Peer ID:', id);
+        
+        socket.emit('join-room', { 
+          room: currentRoom, 
+          peerId: id,
+          name: userName 
+        });
+        
+        console.log('Отправлен join-room запрос');
+        
+        addParticipant(id, userName, myStream, true);
+      });
+      
+      peer.on('call', (call) => {
+        console.log('📞 Входящий вызов PeerJS от:', call.peer);
+        
+        if (!myStream) {
+          console.warn('Нет потока для ответа');
+          return;
+        }
+        
+        call.answer(myStream);
+        
+        call.on('stream', (remoteStream) => {
+          console.log('✅ Получен поток PeerJS от:', call.peer);
+          addParticipant(call.peer, 'Участник', remoteStream, false);
+        });
+        
+        call.on('error', (err) => {
+          console.error('❌ Ошибка вызова PeerJS:', err);
+        });
+      });
+      
+      peer.on('error', (err) => {
+        console.error('❌ PeerJS ошибка:', err);
+      });
+      
+    } catch (peerError) {
+      console.warn('⚠️ PeerJS не работает, используем WebRTC через Socket.io');
+      myPeerId = 'webrtc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      
       socket.emit('join-room', { 
         room: currentRoom, 
-        peerId: id,
+        peerId: myPeerId,
         name: userName 
       });
       
-      // Добавляем себя в список участников
-      addParticipant(id, userName, myStream, true);
-    });
-    
-    // Обработка входящих вызовов
-    peer.on('call', (call) => {
-      console.log('Входящий вызов от:', call.peer);
-      call.answer(myStream);
-      
-      call.on('stream', (remoteStream) => {
-        console.log('Получен поток от:', call.peer);
-        addParticipant(call.peer, 'Участник', remoteStream, false);
-      });
-    });
-    
-    // Обработка ошибок
-    peer.on('error', (err) => {
-      console.error('PeerJS ошибка:', err);
-    });
+      addParticipant(myPeerId, userName, myStream, true);
+    }
     
   } catch (error) {
-    console.error('Ошибка инициализации голосового чата:', error);
-    alert('Не удалось получить доступ к микрофону. Пожалуйста, разрешите доступ к микрофону в настройках браузера.');
+    console.error('❌ Ошибка инициализации голосового чата:', error);
     
-    // Все равно показываем интерфейс, но без микрофона
-    addParticipant('local', userName, null, true);
+    myPeerId = 'local_' + Date.now();
+    addParticipant(myPeerId, userName, null, true);
   }
+}
+
+async function createWebRTCOffer(peerId, name) {
+  console.log('Создаем WebRTC предложение для', peerId);
+  
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  });
+  
+  webrtcConnections[peerId] = pc;
+  
+  myStream.getTracks().forEach(track => {
+    pc.addTrack(track, myStream);
+  });
+  
+  pc.ontrack = (event) => {
+    console.log('🎵 Получен удаленный поток от', peerId);
+    addParticipant(peerId, name, event.streams[0], false);
+  };
+  
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit('webrtc-ice-candidate', {
+        to: peerId,
+        from: myPeerId,
+        candidate: event.candidate
+      });
+    }
+  };
+  
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  
+  socket.emit('webrtc-offer', {
+    to: peerId,
+    from: myPeerId,
+    offer: offer
+  });
+}
+
+async function createWebRTCAnswer(from, offer) {
+  console.log('Создаем WebRTC ответ для', from);
+  
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  });
+  
+  webrtcConnections[from] = pc;
+  
+  myStream.getTracks().forEach(track => {
+    pc.addTrack(track, myStream);
+  });
+  
+  pc.ontrack = (event) => {
+    console.log('🎵 Получен удаленный поток от', from);
+    addParticipant(from, 'Участник', event.streams[0], false);
+  };
+  
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit('webrtc-ice-candidate', {
+        to: from,
+        from: myPeerId,
+        candidate: event.candidate
+      });
+    }
+  };
+  
+  await pc.setRemoteDescription(new RTCSessionDescription(offer));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  
+  socket.emit('webrtc-answer', {
+    to: from,
+    from: myPeerId,
+    answer: answer
+  });
 }
 
 function toggleMicrophone() {
@@ -530,13 +695,11 @@ function toggleMicrophone() {
   
   const audioTrack = myStream.getAudioTracks()[0];
   if (audioTrack) {
-    // Правильно меняем состояние
     micOn = !audioTrack.enabled;
     audioTrack.enabled = micOn;
     
     console.log('Микрофон:', micOn ? 'ВКЛ' : 'ВЫКЛ');
     
-    // Обновляем иконку и цвет кнопки
     const micBtn = document.getElementById('mic-btn');
     if (!micBtn) return;
     
@@ -559,10 +722,7 @@ function toggleMicrophone() {
       textSpan.textContent = micOn ? 'Микрофон' : 'Микрофон выкл.';
     }
     
-    // Обновляем иконки
     lucide.createIcons();
-    
-    // Обновляем статус на карточке
     updateMyStatus();
   }
 }
@@ -604,7 +764,6 @@ async function toggleCamera() {
         textSpan.textContent = 'Камера вкл.';
       }
       
-      // Показываем видео в отдельной карточке
       addCameraCard();
       
     } else {
@@ -623,7 +782,6 @@ async function toggleCamera() {
         textSpan.textContent = 'Камера';
       }
       
-      // Удаляем карточку с камерой
       removeCameraCard();
     }
     
@@ -634,9 +792,7 @@ async function toggleCamera() {
   }
 }
 
-// Функция добавления карточки с камерой
 function addCameraCard() {
-  // Проверяем, не добавлена ли уже карточка
   if (document.getElementById('camera-card')) return;
   
   const card = document.createElement('div');
@@ -654,7 +810,6 @@ function addCameraCard() {
   document.getElementById('participants').appendChild(card);
 }
 
-// Функция удаления карточки с камерой
 function removeCameraCard() {
   const card = document.getElementById('camera-card');
   if (card) {
@@ -674,7 +829,6 @@ async function shareScreen() {
     
     alert('Демонстрация экрана начата!');
     
-    // Создаем карточку для демонстрации экрана
     addScreenShareCard(screenStream);
     
     screenStream.getVideoTracks()[0].onended = () => {
@@ -729,7 +883,6 @@ function openSettings() {
   document.getElementById('profile-name').value = userName;
   document.getElementById('profile-avatar').value = userAvatar;
   
-  // Устанавливаем значения аудио-фильтров
   const echoCancellation = document.getElementById('echo-cancellation');
   const noiseSuppression = document.getElementById('noise-suppression');
   const autoGainControl = document.getElementById('auto-gain-control');
@@ -738,7 +891,6 @@ function openSettings() {
   if (noiseSuppression) noiseSuppression.checked = audioFilters.noiseSuppression;
   if (autoGainControl) autoGainControl.checked = audioFilters.autoGainControl;
   
-  // Обновляем предпросмотр аватара
   const avatarPreview = document.getElementById('avatar-preview');
   if (userAvatar && avatarPreview) {
     avatarPreview.src = userAvatar;
@@ -760,7 +912,6 @@ function updateAudioFilters() {
     
     console.log('Аудио фильтры обновлены:', audioFilters);
     
-    // Перезапускаем микрофон с новыми настройками
     if (myStream) {
       initVoiceChat();
     }
@@ -778,13 +929,11 @@ function saveSettings() {
   
   let hasChanges = false;
   
-  // Проверяем изменения имени
   if (newName !== userName) {
     userName = newName;
     hasChanges = true;
   }
   
-  // Проверяем изменения аватара
   if (newAvatar !== userAvatar) {
     userAvatar = newAvatar;
     hasChanges = true;
@@ -802,19 +951,16 @@ function saveSettings() {
   document.getElementById('settings-modal').classList.add('hidden');
 }
 
-// Обработка загрузки аватара из файла
 function handleAvatarUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
   
-  // Проверяем тип файла
   if (!file.type.startsWith('image/')) {
     alert('Пожалуйста, выберите изображение (JPG, PNG, GIF)');
     e.target.value = '';
     return;
   }
   
-  // Проверяем размер файла (максимум 5MB)
   if (file.size > 5 * 1024 * 1024) {
     alert('Файл слишком большой. Максимальный размер: 5MB');
     e.target.value = '';
@@ -823,7 +969,6 @@ function handleAvatarUpload(e) {
   
   const reader = new FileReader();
   reader.onload = (event) => {
-    // Показываем предпросмотр
     const avatarPreview = document.getElementById('avatar-preview');
     const defaultAvatar = document.getElementById('default-avatar');
     const removeBtn = document.getElementById('remove-avatar');
@@ -834,7 +979,6 @@ function handleAvatarUpload(e) {
       defaultAvatar.classList.add('hidden');
       removeBtn.classList.remove('hidden');
       
-      // Сохраняем в поле URL
       document.getElementById('profile-avatar').value = event.target.result;
     }
   };
@@ -842,7 +986,6 @@ function handleAvatarUpload(e) {
   reader.readAsDataURL(file);
 }
 
-// Обновление предпросмотра аватара из URL
 function updateAvatarPreviewFromUrl() {
   const url = document.getElementById('profile-avatar')?.value.trim();
   const avatarPreview = document.getElementById('avatar-preview');
@@ -852,7 +995,6 @@ function updateAvatarPreviewFromUrl() {
   if (!url || !avatarPreview || !defaultAvatar || !removeBtn) return;
   
   if (url) {
-    // Проверяем, валидный ли это URL изображения
     if (url.match(/\.(jpeg|jpg|gif|png|webp)$/i) || url.startsWith('data:image')) {
       avatarPreview.src = url;
       avatarPreview.classList.remove('hidden');
@@ -863,14 +1005,12 @@ function updateAvatarPreviewFromUrl() {
       document.getElementById('profile-avatar').value = '';
     }
   } else {
-    // Если URL пустой, показываем стандартный аватар
     avatarPreview.classList.add('hidden');
     defaultAvatar.classList.remove('hidden');
     removeBtn.classList.add('hidden');
   }
 }
 
-// Удаление аватара
 function removeAvatar() {
   const avatarPreview = document.getElementById('avatar-preview');
   const defaultAvatar = document.getElementById('default-avatar');
@@ -885,7 +1025,6 @@ function removeAvatar() {
   removeBtn.classList.add('hidden');
   avatarInput.value = '';
   
-  // Очищаем загрузку файла
   const avatarUpload = document.getElementById('avatar-upload');
   if (avatarUpload) avatarUpload.value = '';
 }
@@ -978,7 +1117,6 @@ function updateGroupsList() {
     `;
     container.appendChild(div);
     
-    // Добавляем обработчики
     div.querySelector('.join-group-btn').onclick = () => {
       joinGroup(group.id);
     };
@@ -1031,7 +1169,6 @@ function updateFriendsList() {
     
     container.appendChild(div);
     
-    // Добавляем обработчики
     div.querySelector('.invite-friend-btn').onclick = () => {
       inviteFriendToCall(friend);
     };
@@ -1047,7 +1184,6 @@ function updateFriendsList() {
 }
 
 function showFriendRequestNotification(fromUser) {
-  // Создаем уведомление
   const notification = document.createElement('div');
   notification.className = 'fixed top-4 right-4 glass rounded-2xl p-4 neon z-50 animate-slideInRight';
   notification.innerHTML = `
@@ -1072,7 +1208,6 @@ function showFriendRequestNotification(fromUser) {
   
   document.body.appendChild(notification);
   
-  // Добавляем обработчики
   notification.querySelector('.accept-friend-notification-btn').onclick = () => {
     acceptFriendRequest(fromUser);
     notification.remove();
@@ -1083,7 +1218,6 @@ function showFriendRequestNotification(fromUser) {
     notification.remove();
   };
   
-  // Автоматическое удаление через 10 секунд
   setTimeout(() => {
     if (notification.parentNode) {
       notification.remove();
@@ -1107,7 +1241,6 @@ function updateFriendRequestsList() {
     return;
   }
   
-  // Показываем счетчик
   if (countBadge) {
     countBadge.textContent = friendRequests.length;
     countBadge.classList.remove('hidden');
@@ -1139,7 +1272,6 @@ function updateFriendRequestsList() {
     
     container.appendChild(div);
     
-    // Добавляем обработчики для кнопок
     div.querySelector('.accept-friend-request-btn').onclick = () => {
       acceptFriendRequest(fromUser);
     };
@@ -1156,10 +1288,8 @@ function acceptFriendRequest(fromUser) {
     to: userName 
   });
   
-  // Показываем уведомление
   alert(`✅ Вы приняли запрос дружбы от ${fromUser}`);
   
-  // Обновляем списки
   loadFriends();
   loadFriendRequests();
 }
@@ -1171,7 +1301,6 @@ function rejectFriendRequest(fromUser) {
       to: userName 
     });
     
-    // Обновляем список запросов
     loadFriendRequests();
   }
 }
@@ -1185,14 +1314,17 @@ function removeFriend(friendUsername) {
     
     alert(`❌ ${friendUsername} удален из друзей`);
     
-    // Обновляем список друзей
     loadFriends();
   }
 }
 
 function addParticipant(id, name, stream, isMe = false) {
-  // Проверяем, не добавлен ли уже участник
-  if (document.querySelector(`[data-peer-id="${id}"]`)) return;
+  if (document.querySelector(`[data-peer-id="${id}"]`)) {
+    console.log('Участник уже добавлен:', id);
+    return;
+  }
+  
+  console.log('Добавляем участника:', { id, name, isMe, hasStream: !!stream });
   
   const card = document.createElement('div');
   card.dataset.peerId = id;
@@ -1212,12 +1344,16 @@ function addParticipant(id, name, stream, isMe = false) {
   if (stream) {
     const audio = document.createElement('audio');
     audio.autoplay = true;
-    audio.muted = isMe; // Не слушаем себя
+    audio.muted = isMe;
     audio.srcObject = stream;
     
-    // Добавляем обработчики ошибок аудио
+    audio.onloadedmetadata = () => {
+      console.log('🎵 Аудио готово для', name);
+      audio.play().catch(e => console.log('Автовоспроизведение заблокировано:', e));
+    };
+    
     audio.onerror = (e) => {
-      console.error('Ошибка аудио элемента:', e);
+      console.error('🔇 Ошибка аудио для', name, e);
     };
     
     card.appendChild(audio);
@@ -1226,9 +1362,9 @@ function addParticipant(id, name, stream, isMe = false) {
   const participantsDiv = document.getElementById('participants');
   if (participantsDiv) {
     participantsDiv.appendChild(card);
+    console.log('Карточка участника добавлена в DOM');
   }
   
-  // Запускаем анализ аудио для анимации говорящего
   if (isMe && stream) {
     startAudioAnalysis(stream, card);
   }
@@ -1255,7 +1391,6 @@ function startAudioAnalysis(stream, card) {
       }
       const average = sum / bufferLength;
       
-      // Порог для определения речи
       const isSpeaking = average > 20 && micOn;
       
       if (isSpeaking) {
@@ -1278,6 +1413,18 @@ function removeParticipant(peerId) {
   if (participantCard) {
     participantCard.remove();
   }
+  
+  // Закрываем WebRTC соединения
+  if (webrtcConnections[peerId]) {
+    webrtcConnections[peerId].close();
+    delete webrtcConnections[peerId];
+  }
+  
+  // Закрываем PeerJS соединения
+  if (peers[peerId]) {
+    peers[peerId].close();
+    delete peers[peerId];
+  }
 }
 
 function sendMessage() {
@@ -1289,10 +1436,8 @@ function sendMessage() {
     return;
   }
 
-  // Добавляем сообщение сразу в интерфейс (только один раз!)
   addMessage(userName, text, true);
   
-  // Отправляем на сервер
   if (currentGroup) {
     socket.emit('group-message', { 
       groupId: currentGroup.id, 
@@ -1307,7 +1452,6 @@ function sendMessage() {
     });
   }
 
-  // Очищаем поле ввода
   if (chatInput) {
     chatInput.value = '';
     chatInput.focus();
@@ -1352,7 +1496,6 @@ function handleMediaUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
   
-  // Проверяем размер файла (максимум 10MB)
   if (file.size > 10 * 1024 * 1024) {
     alert('Файл слишком большой. Максимальный размер: 10MB');
     e.target.value = '';
@@ -1375,10 +1518,8 @@ function handleMediaUpload(e) {
       ${!isImage && !isVideo ? `<a href="${event.target.result}" download="${file.name}">${file.name}</a>` : ''}
     </div>`;
     
-    // Добавляем сообщение в интерфейс
     addMessage(userName, msg, true);
     
-    // Отправляем на сервер
     if (currentGroup) {
       socket.emit('group-message', { 
         groupId: currentGroup.id, 
