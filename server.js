@@ -227,18 +227,42 @@ io.on('connection', (socket) => {
 
   // Присоединение к комнате
   socket.on('join-room', ({ room, peerId, name }) => {
-    if (!room || !peerId) return;
+  if (!room || !peerId) return;
+  
+  console.log(`👤 ${name || socket.username} присоединяется к комнате ${room} с peerId ${peerId}`);
+  
+  socket.join(room);
+  socket.currentRoom = room;
+  socket.peerId = peerId;
+  socket.roomName = name || socket.userData?.name || 'Участник';
+  
+  // Получаем список текущих участников комнаты
+  const roomSockets = io.sockets.adapter.rooms.get(room);
+  if (roomSockets) {
+    console.log(`В комнате ${room} сейчас:`, Array.from(roomSockets));
     
-    socket.join(room);
-    socket.currentRoom = room;
-    socket.peerId = peerId;
-    
-    // Уведомляем других в комнате
-    socket.to(room).emit('user-joined', {
-      peerId,
-      name: name || socket.userData?.name || 'Участник'
+    // Отправляем новому пользователю список уже подключенных участников
+    roomSockets.forEach(socketId => {
+      if (socketId !== socket.id) {
+        const otherSocket = io.sockets.sockets.get(socketId);
+        if (otherSocket && otherSocket.peerId && otherSocket.roomName) {
+          console.log(`Отправляем ${name} информацию о ${otherSocket.roomName}`);
+          socket.emit('user-joined', {
+            peerId: otherSocket.peerId,
+            name: otherSocket.roomName
+          });
+        }
+      }
     });
+  }
+  
+  // Уведомляем других в комнате о новом участнике
+  console.log(`Уведомляем комнату ${room} о новом участнике ${name}`);
+  socket.to(room).emit('user-joined', {
+    peerId,
+    name: socket.roomName
   });
+});
 
   // Сообщение в чате
   socket.on('chat-message', ({ room, name, text }) => {
@@ -498,28 +522,30 @@ io.on('connection', (socket) => {
 
   // Вспомогательные функции
   function sendFriendsList(socket, username) {
-    db.all(
-      `SELECT 
-        CASE 
-          WHEN user1 = ? THEN user2 
-          ELSE user1 
-        END as friend_username
-       FROM friends 
-       WHERE (user1 = ? OR user2 = ?) 
-         AND status = 'accepted'
-       ORDER BY friend_username`,
-      [username, username, username],
-      (err, rows) => {
-        if (err) {
-          console.error('Ошибка получения друзей:', err);
-          return;
-        }
-        
-        const friends = rows.map(row => row.friend_username);
-        socket.emit('friends-list', friends);
+  db.all(
+    `SELECT DISTINCT
+      CASE 
+        WHEN user1 = ? THEN user2 
+        WHEN user2 = ? THEN user1 
+      END as friend_username
+     FROM friends 
+     WHERE (user1 = ? OR user2 = ?) 
+       AND status = 'accepted'
+       AND friend_username IS NOT NULL
+     ORDER BY friend_username`,
+    [username, username, username, username],
+    (err, rows) => {
+      if (err) {
+        console.error('Ошибка получения друзей:', err);
+        return;
       }
-    );
-  }
+      
+      const friends = rows.map(row => row.friend_username);
+      console.log(`👥 Отправляем список друзей для ${username}:`, friends);
+      socket.emit('friends-list', friends);
+    }
+  );
+}
 
   function sendFriendRequests(socket, username) {
     db.all(

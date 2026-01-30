@@ -1,0 +1,13 @@
+[build]
+builder = "nixpacks"
+builderOptions = {}
+
+[deploy]
+healthCheckPath = "/health"
+healthCheckTimeout = 120
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+[variables]
+PORT = "3000"
+NODE_ENV = "production"

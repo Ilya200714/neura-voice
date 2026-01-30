@@ -6,7 +6,7 @@
   <title>Neura Voice</title>
 
   <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <!-- Иконки -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Socket.io -->
@@ -345,21 +345,21 @@
 
         <!-- Палитра эмодзи -->
         <div id="emoji-picker" class="emoji-picker hidden">
-          <span onclick="addEmoji('😊')">😊</span>
-          <span onclick="addEmoji('😂')">😂</span>
-          <span onclick="addEmoji('❤️')">❤️</span>
-          <span onclick="addEmoji('👍')">👍</span>
-          <span onclick="addEmoji('🔥')">🔥</span>
-          <span onclick="addEmoji('🎉')">🎉</span>
-          <span onclick="addEmoji('🤔')">🤔</span>
-          <span onclick="addEmoji('😎')">😎</span>
-          <span onclick="addEmoji('🥳')">🥳</span>
-          <span onclick="addEmoji('👀')">👀</span>
-          <span onclick="addEmoji('😍')">😍</span>
-          <span onclick="addEmoji('😢')">😢</span>
-          <span onclick="addEmoji('🤣')">🤣</span>
-          <span onclick="addEmoji('😡')">😡</span>
-          <span onclick="addEmoji('🎶')">🎶</span>
+          <span onclick="addEmojiToInput('😊')">😊</span>
+            <span onclick="addEmojiToInput('😂')">😂</span>
+            <span onclick="addEmojiToInput('❤️')">❤</span>
+            <span onclick="addEmojiToInput('👍')">👍</span>
+            <span onclick="addEmojiToInput('🔥')">🔥</span>
+            <span onclick="addEmojiToInput('🎉')">🎉</span>
+            <span onclick="addEmojiToInput('🤔')">🤔</span>
+            <span onclick="addEmojiToInput('😎')">😎</span>
+            <span onclick="addEmojiToInput('🥳')">🥳</span>
+            <span onclick="addEmojiToInput('👀')">👀</span>
+            <span onclick="addEmojiToInput('😍')">😍</span>
+            <span onclick="addEmojiToInput('😢')">😢</span>
+            <span onclick="addEmojiToInput('🤣')">🤣</span>
+            <span onclick="addEmojiToInput('😡')">😡</span>
+            <span onclick="addEmojiToInput('🎶')">🎶</span>
         </div>
       </div>
     </aside>
@@ -468,17 +468,26 @@
 
 <script src="app.js"></script>
 <script>
-  // Глобальные функции для эмодзи
-  window.addEmoji = function(emoji) {
+  // Глобальная функция для эмодзи (ИСПРАВЛЕННОЕ ИМЯ)
+  window.addEmojiToInput = function(emoji) {
     const chatInput = document.getElementById('chat-input');
     if (chatInput) {
       chatInput.value += emoji;
+      chatInput.focus();
       const emojiPicker = document.getElementById('emoji-picker');
       if (emojiPicker) {
         emojiPicker.classList.add('hidden');
       }
     }
   };
+  
+  // Инициализация иконок при загрузке
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof lucide !== 'undefined') {
+      lucide.createIcons();
+    }
+    console.log('Приложение загружено');
+  });
   
   // Глобальные функции для групп
  // window.joinGroup = function(groupId) {
